@@ -1,0 +1,5 @@
+{
+  "name": "Uganda Clinic EMR",
+  "description": "A production-ready Electronic Medical Records system tailored for Ugandan health centers, featuring patient management, triage, clinical encounters, pharmacy, lab, and billing with Mobile Money support.",
+  "requestFramePermissions": []
+}
