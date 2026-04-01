@@ -76,6 +76,52 @@ const EncounterHistory = ({ patientId, token }: { patientId: string, token: stri
             </div>
           )}
 
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+            {enc.ordered_labs && enc.ordered_labs.length > 0 && (
+              <div className="space-y-2">
+                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Lab Orders</Label>
+                <div className="flex flex-wrap gap-1">
+                  {enc.ordered_labs.map((lab: string) => (
+                    <Badge key={lab} variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">
+                      {lab.replace(/_/g, ' ')}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {enc.ordered_imaging && enc.ordered_imaging.length > 0 && (
+              <div className="space-y-2">
+                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Imaging Requests</Label>
+                <div className="space-y-1">
+                  {enc.ordered_imaging.map((img: any, idx: number) => (
+                    <div key={idx} className="text-[11px] bg-purple-50 text-purple-700 border border-purple-200 rounded px-2 py-1">
+                      <div className="flex justify-between">
+                        <span className="font-bold">{img.name}</span>
+                        <span className="text-[9px] uppercase opacity-70">{img.category}</span>
+                      </div>
+                      {img.bodyPart && <div className="text-[10px] mt-0.5">Part: <span className="font-medium">{img.bodyPart}</span></div>}
+                      {img.clinicalIndication && <div className="text-[10px] italic mt-0.5">Indication: {img.clinicalIndication}</div>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {enc.prescriptions && enc.prescriptions.length > 0 && (
+              <div className="space-y-2">
+                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Prescriptions</Label>
+                <div className="space-y-1">
+                  {enc.prescriptions.map((p: any, idx: number) => (
+                    <div key={idx} className="text-[11px] bg-green-50 text-green-700 border border-green-200 rounded px-2 py-1">
+                      <span className="font-bold">{p.medication_name}</span> {p.dosage} - {p.frequency} ({p.duration})
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           {enc.vitals && (
             <>
               <Separator />

@@ -27,6 +27,21 @@ const LAB_TESTS = [
   { id: 'syphilis', name: 'Syphilis (VDRL/RPR)', category: 'Serology', description: 'Nonspecific screening test for syphilis', price: 7000 },
 ];
 
+const IMAGING_TESTS = [
+  { id: 'ultrasound_abdomen', name: 'Ultrasound Abdomen', category: 'Ultrasound', price: 50000 },
+  { id: 'ultrasound_pelvis', name: 'Ultrasound Pelvis', category: 'Ultrasound', price: 45000 },
+  { id: 'ultrasound_obstetric', name: 'Ultrasound Obstetric', category: 'Ultrasound', price: 40000 },
+  { id: 'xray_chest', name: 'X-Ray Chest', category: 'X-Ray', price: 30000 },
+  { id: 'xray_limb', name: 'X-Ray Limb', category: 'X-Ray', price: 25000 },
+  { id: 'xray_spine', name: 'X-Ray Spine', category: 'X-Ray', price: 40000 },
+  { id: 'ct_brain', name: 'CT Scan Brain', category: 'CT-Scan', price: 250000 },
+  { id: 'ct_abdomen', name: 'CT Scan Abdomen', category: 'CT-Scan', price: 350000 },
+  { id: 'ct_chest', name: 'CT Scan Chest', category: 'CT-Scan', price: 300000 },
+  { id: 'mri_brain', name: 'MRI Brain', category: 'MRI', price: 600000 },
+  { id: 'mri_spine', name: 'MRI Spine', category: 'MRI', price: 750000 },
+  { id: 'mri_knee', name: 'MRI Knee', category: 'MRI', price: 650000 },
+];
+
 const ICD10_CODES = [
   { code: 'A00', name: 'Cholera' },
   { code: 'A01', name: 'Typhoid and paratyphoid fevers' },
@@ -163,15 +178,19 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
   const [vitals, setVitals] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [selectedLabs, setSelectedLabs] = useState<string[]>([]);
+  const [selectedImaging, setSelectedImaging] = useState<any[]>([]);
   const [selectedICD10, setSelectedICD10] = useState<string[]>([]);
   const [prescriptions, setPrescriptions] = useState<any[]>([]);
   const [labSearch, setLabSearch] = useState('');
+  const [imagingSearch, setImagingSearch] = useState('');
   const [medSearch, setMedSearch] = useState('');
   const [icdSearch, setIcdSearch] = useState('');
   const [isLabModalOpen, setIsLabModalOpen] = useState(false);
+  const [isImagingModalOpen, setIsImagingModalOpen] = useState(false);
   const [isICDModalOpen, setIsICDModalOpen] = useState(false);
   const [isMedModalOpen, setIsMedModalOpen] = useState(false);
   const [currentMed, setCurrentMed] = useState<any>(null);
+  const [currentImaging, setCurrentImaging] = useState<any>(null);
   const { token, user } = useAuthStore();
 
   useEffect(() => {
@@ -223,6 +242,7 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
         patient_id: appt.patient_id,
         doctor_id: user?.id,
         ordered_labs: selectedLabs,
+        ordered_imaging: selectedImaging,
         icd10_codes: selectedICD10,
         prescriptions: prescriptions
       }, {
@@ -241,6 +261,34 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
         ? prev.filter(id => id !== testId) 
         : [...prev, testId]
     );
+  };
+
+  const toggleImaging = (testId: string) => {
+    setSelectedImaging(prev => 
+      prev.some(img => img.id === testId) 
+        ? prev.filter(img => img.id !== testId) 
+        : [...prev, { id: testId, ...IMAGING_TESTS.find(t => t.id === testId) }]
+    );
+  };
+
+  const addImagingRequest = (e: any) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const data = Object.fromEntries(formData);
+    
+    setSelectedImaging(prev => [...prev, {
+      ...currentImaging,
+      bodyPart: data.bodyPart,
+      clinicalIndication: data.clinicalIndication
+    }]);
+    
+    setIsImagingModalOpen(false);
+    setCurrentImaging(null);
+    toast.success('Imaging request added');
+  };
+
+  const removeImaging = (index: number) => {
+    setSelectedImaging(prev => prev.filter((_, i) => i !== index));
   };
 
   const toggleICD10 = (code: string) => {
@@ -503,6 +551,77 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-primary font-semibold">
+            <Search className="w-5 h-5" />
+            <h3>Imaging Requests</h3>
+          </div>
+        </div>
+        {selectedImaging.length > 0 ? (
+          <div className="border rounded-lg overflow-hidden">
+            <Table>
+              <TableHeader className="bg-muted/50">
+                <TableRow>
+                  <TableHead className="h-9 text-[11px] uppercase">Investigation</TableHead>
+                  <TableHead className="h-9 text-[11px] uppercase">Body Part</TableHead>
+                  <TableHead className="h-9 text-[11px] uppercase">Indication</TableHead>
+                  <TableHead className="h-9 text-[11px] uppercase text-right">Price</TableHead>
+                  <TableHead className="h-9 text-[11px] uppercase text-right">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {selectedImaging.map((img, idx) => {
+                  return (
+                    <TableRow key={idx}>
+                      <TableCell className="py-2 font-medium">
+                        <div className="flex flex-col">
+                          <span>{img.name}</span>
+                          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">{img.category}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="py-2 text-sm">{img.bodyPart || 'Not specified'}</TableCell>
+                      <TableCell className="py-2 text-xs text-muted-foreground max-w-[200px] truncate" title={img.clinicalIndication}>
+                        {img.clinicalIndication || 'Not specified'}
+                      </TableCell>
+                      <TableCell className="py-2 text-right font-mono text-xs">
+                        {img.price.toLocaleString()} UGX
+                      </TableCell>
+                      <TableCell className="py-2 text-right">
+                        <Button 
+                          type="button" 
+                          variant="ghost" 
+                          size="sm" 
+                          className="h-7 w-7 p-0 text-destructive"
+                          onClick={() => removeImaging(idx)}
+                        >
+                          ×
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+                <TableRow className="bg-muted/30 font-semibold">
+                  <TableCell colSpan={3} className="py-2">Total Imaging Fees</TableCell>
+                  <TableCell className="py-2 text-right text-primary">
+                    {selectedImaging
+                      .reduce((sum, t) => sum + t.price, 0)
+                      .toLocaleString()} UGX
+                  </TableCell>
+                  <TableCell className="py-2" />
+                </TableRow>
+              </TableBody>
+            </Table>
+          </div>
+        ) : (
+          <div className="text-center py-6 border-2 border-dashed rounded-lg text-muted-foreground text-sm">
+            No imaging investigations requested yet
+          </div>
+        )}
+      </div>
+
+      <Separator />
+
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-primary font-semibold">
             <Pill className="w-5 h-5" />
             <h3>Prescriptions</h3>
           </div>
@@ -738,6 +857,101 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
                   </Button>
                 </div>
               </div>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={isImagingModalOpen} onOpenChange={setIsImagingModalOpen}>
+            <DialogTrigger render={
+              <Button type="button" variant="outline" className="gap-2 h-11 relative">
+                <Search className="w-4 h-4" /> Request Imaging
+                {selectedImaging.length > 0 && (
+                  <Badge className="absolute -top-2 -right-2 px-1.5 py-0.5 min-w-[20px] h-5 flex items-center justify-center text-[10px]">
+                    {selectedImaging.length}
+                  </Badge>
+                )}
+              </Button>
+            } />
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Request Imaging Investigation</DialogTitle>
+              </DialogHeader>
+              
+              {!currentImaging ? (
+                <div className="space-y-4">
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search ultrasound, xray, ct, mri..."
+                      className="pl-8"
+                      value={imagingSearch}
+                      onChange={(e) => setImagingSearch(e.target.value)}
+                    />
+                  </div>
+                  <div className="grid gap-2 py-4 max-h-[400px] overflow-y-auto">
+                    <div className="space-y-4">
+                      {Array.from(new Set(IMAGING_TESTS
+                        .filter(t => 
+                          t.name.toLowerCase().includes(imagingSearch.toLowerCase()) || 
+                          t.category.toLowerCase().includes(imagingSearch.toLowerCase())
+                        )
+                        .map(t => t.category))).map(category => (
+                        <div key={category} className="space-y-2">
+                          <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">{category}</h4>
+                          <div className="grid gap-2">
+                            {IMAGING_TESTS
+                              .filter(t => t.category === category)
+                              .filter(t => 
+                                t.name.toLowerCase().includes(imagingSearch.toLowerCase()) || 
+                                t.category.toLowerCase().includes(imagingSearch.toLowerCase())
+                              )
+                              .map(test => (
+                              <div 
+                                key={test.id} 
+                                className="flex items-center justify-between p-3 hover:bg-accent rounded-lg cursor-pointer border transition-colors"
+                                onClick={() => setCurrentImaging(test)}
+                              >
+                                <div>
+                                  <p className="font-medium">{test.name}</p>
+                                  <p className="text-xs text-muted-foreground">{test.category}</p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded">
+                                    {test.price.toLocaleString()} UGX
+                                  </span>
+                                  <Plus className="w-4 h-4 text-muted-foreground" />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <form onSubmit={addImagingRequest} className="space-y-4 py-4">
+                  <div className="p-3 bg-primary/5 rounded-lg border border-primary/20 mb-4">
+                    <p className="text-sm font-semibold text-primary">{currentImaging.name}</p>
+                    <p className="text-xs text-muted-foreground">{currentImaging.category}</p>
+                  </div>
+                  
+                  <div className="grid gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="bodyPart">Body Part</Label>
+                      <Input id="bodyPart" name="bodyPart" placeholder="e.g. Abdomen, Right Knee, Chest" required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="clinicalIndication">Clinical Indication</Label>
+                      <Textarea id="clinicalIndication" name="clinicalIndication" placeholder="Reason for investigation..." required />
+                    </div>
+                  </div>
+                  
+                  <div className="flex gap-2 pt-4">
+                    <Button type="button" variant="outline" className="flex-1" onClick={() => setCurrentImaging(null)}>Back</Button>
+                    <Button type="submit" className="flex-1">Add Request</Button>
+                  </div>
+                </form>
+              )}
             </DialogContent>
           </Dialog>
         </div>
