@@ -696,31 +696,38 @@ async function startServer() {
         let totalPrice = 0;
         const invoiceItems: any[] = [];
 
-        // Logic to decrement stock from nearest expiry batch
+        // Logic to decrement stock from nearest expiry batches
         prescription.items.forEach((item: any) => {
+          let remainingToDispense = Number(item.quantity || 1);
+          const medicationName = item.medication_name;
+          
           const batches = mockDb.inventory
-            .filter((i: any) => i.name === item.medication_name && i.stock > 0)
+            .filter((i: any) => i.name === medicationName && i.stock > 0)
             .sort((a: any, b: any) => new Date(a.expiry_date).getTime() - new Date(b.expiry_date).getTime());
           
-          if (batches.length > 0) {
-            const batch = batches[0];
-            const oldStock = batch.stock;
-            // Assuming 1 unit for now as per previous logic
-            const quantity = 1; 
-            batch.stock = Math.max(0, batch.stock - quantity);
+          let itemTotalPrice = 0;
+          
+          for (const batch of batches) {
+            if (remainingToDispense <= 0) break;
             
-            const itemPrice = (batch.price_per_unit || 0) * quantity;
-            totalPrice += itemPrice;
-            invoiceItems.push({
-              description: `${item.medication_name} (${item.dosage})`,
-              amount: itemPrice,
-              quantity: quantity,
-              unit_price: batch.price_per_unit
-            });
-
+            const dispenseFromBatch = Math.min(batch.stock, remainingToDispense);
+            batch.stock -= dispenseFromBatch;
+            remainingToDispense -= dispenseFromBatch;
+            
+            const batchPrice = (batch.price_per_unit || 0) * dispenseFromBatch;
+            itemTotalPrice += batchPrice;
+            
             logAction((req as any).user, 'STOCK_ADJUSTMENT', 
-              `Stock reduced for ${item.medication_name} (${item.dosage}) due to dispensing. Type: REMOVE, Quantity: ${quantity}, New Stock: ${batch.stock} ${batch.unit}. Reason: Prescription Dispensed (ID: ${id})`);
+              `Stock reduced for ${medicationName} (${item.dosage}) from batch ${batch.id}. Quantity: ${dispenseFromBatch}, Remaining Stock in batch: ${batch.stock}. Reason: Prescription Dispensed (ID: ${id})`);
           }
+          
+          totalPrice += itemTotalPrice;
+          invoiceItems.push({
+            description: `${medicationName} (${item.dosage})`,
+            amount: itemTotalPrice,
+            quantity: Number(item.quantity || 1),
+            unit_price: batches.length > 0 ? batches[0].price_per_unit : 0
+          });
         });
 
         // Create an invoice for the dispensed medications
@@ -790,10 +797,11 @@ async function startServer() {
   });
 
   app.get('/api/pharmacy/reports/dispensed', authenticateToken, (req, res) => {
-    const { startDate, endDate } = req.query;
+    const { startDate, endDate, medicationName, dispensedBy, sortBy, sortOrder } = req.query;
     
     let dispensed = mockDb.pharmacy_prescriptions.filter((p: any) => p.status === 'DISPENSED');
     
+    // Filter by Date Range
     if (startDate && endDate) {
       const start = new Date(startDate as string);
       const end = new Date(endDate as string);
@@ -805,33 +813,80 @@ async function startServer() {
       });
     }
 
+    // Filter by Dispensing User
+    if (dispensedBy) {
+      dispensed = dispensed.filter((p: any) => {
+        const user = mockDb.users.find(u => u.id === p.dispensed_by);
+        const userName = user ? user.fullName.toLowerCase() : 'unknown';
+        return userName.includes((dispensedBy as string).toLowerCase());
+      });
+    }
+
+    // Filter by Medication Name (for individual prescriptions)
+    if (medicationName) {
+      dispensed = dispensed.filter((p: any) => 
+        p.items.some((item: any) => item.medication_name.toLowerCase().includes((medicationName as string).toLowerCase()))
+      );
+    }
+
     // Aggregate dispensed items
     const itemSummary: { [key: string]: any } = {};
     dispensed.forEach((p: any) => {
       p.items.forEach((item: any) => {
+        // Apply medication name filter to summary as well if present
+        if (medicationName && !item.medication_name.toLowerCase().includes((medicationName as string).toLowerCase())) {
+          return;
+        }
+
         const key = `${item.medication_name}_${item.dosage || ''}`;
         if (!itemSummary[key]) {
           itemSummary[key] = {
             name: item.medication_name,
             dosage: item.dosage,
             totalDispensed: 0,
-            prescriptions: 0
+            prescriptions: 0,
+            totalPrice: 0
           };
         }
-        itemSummary[key].totalDispensed += 1; // Assuming 1 unit per item for now
+        const qty = Number(item.quantity || 1);
+        const invItem = mockDb.inventory.find((i: any) => i.name === item.medication_name);
+        const unitPrice = invItem?.price_per_unit || 0;
+        
+        itemSummary[key].totalDispensed += qty;
         itemSummary[key].prescriptions += 1;
+        itemSummary[key].totalPrice += (unitPrice * qty);
       });
     });
 
+    let summary = Object.values(itemSummary);
+    let prescriptions = dispensed.map((p: any) => {
+      const patient = mockDb.patients.find((pat: any) => pat.patient_id === p.patient_id);
+      const user = mockDb.users.find(u => u.id === p.dispensed_by);
+      return {
+        ...p,
+        patient_name: patient ? `${patient.first_name} ${patient.last_name}` : 'Unknown Patient',
+        dispensed_by_name: user ? user.fullName : 'Unknown User'
+      };
+    });
+
+    // Sorting
+    if (sortBy) {
+      const order = sortOrder === 'desc' ? -1 : 1;
+      if (sortBy === 'date') {
+        prescriptions.sort((a, b) => (new Date(a.dispensed_at).getTime() - new Date(b.dispensed_at).getTime()) * order);
+      } else if (sortBy === 'medication') {
+        summary.sort((a: any, b: any) => a.name.localeCompare(b.name) * order);
+        prescriptions.sort((a, b) => a.items[0].medication_name.localeCompare(b.items[0].medication_name) * order);
+      } else if (sortBy === 'user') {
+        prescriptions.sort((a, b) => a.dispensed_by_name.localeCompare(b.dispensed_by_name) * order);
+      } else if (sortBy === 'revenue') {
+        summary.sort((a: any, b: any) => (a.totalPrice - b.totalPrice) * order);
+      }
+    }
+
     res.json({ 
-      summary: Object.values(itemSummary),
-      prescriptions: dispensed.map((p: any) => {
-        const patient = mockDb.patients.find((pat: any) => pat.patient_id === p.patient_id);
-        return {
-          ...p,
-          patient_name: patient ? `${patient.first_name} ${patient.last_name}` : 'Unknown Patient'
-        };
-      })
+      summary,
+      prescriptions
     });
   });
 

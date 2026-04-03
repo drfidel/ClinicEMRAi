@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Search, Pill, Clock, CheckCircle2, FileText, AlertCircle, Loader2, Printer, Package, Plus, History, BarChart3, TrendingUp, TrendingDown, Calendar, Download, Receipt } from 'lucide-react';
+import { Search, Pill, Clock, CheckCircle2, FileText, AlertCircle, Loader2, Printer, Package, Plus, History, BarChart3, TrendingUp, TrendingDown, Calendar, Download, Receipt, Banknote } from 'lucide-react';
 import axios from 'axios';
 import { useAuthStore } from '@/src/lib/store';
 import { toast } from 'sonner';
@@ -41,6 +41,10 @@ export const Pharmacy = () => {
     startDate: new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0],
     endDate: new Date().toISOString().split('T')[0]
   });
+  const [medicationFilter, setMedicationFilter] = useState('');
+  const [userFilter, setUserFilter] = useState('');
+  const [sortBy, setSortBy] = useState('date');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   const { token, user } = useAuthStore();
 
@@ -78,6 +82,10 @@ export const Pharmacy = () => {
       let url = `/api/pharmacy/reports/${reportType}`;
       if (reportType === 'dispensed') {
         url += `?startDate=${dateRange.startDate}&endDate=${dateRange.endDate}`;
+        if (medicationFilter) url += `&medicationName=${medicationFilter}`;
+        if (userFilter) url += `&dispensedBy=${userFilter}`;
+        if (sortBy) url += `&sortBy=${sortBy}`;
+        if (sortOrder) url += `&sortOrder=${sortOrder}`;
       }
       const res = await axios.get(url, {
         headers: { Authorization: `Bearer ${token}` }
@@ -99,7 +107,7 @@ export const Pharmacy = () => {
     if (activeTab === 'reports') {
       fetchReport();
     }
-  }, [activeTab, reportType, dateRange]);
+  }, [activeTab, reportType, dateRange, medicationFilter, userFilter, sortBy, sortOrder]);
 
   const handleAdjustStock = async () => {
     if (!selectedItem || !adjustmentAmount || !adjustmentReason) {
@@ -654,6 +662,10 @@ export const Pharmacy = () => {
 
                 {reportType === 'dispensed' && (
                   <div className="space-y-3 pt-4 border-t">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground mb-2">
+                      <Search className="w-3 h-3" />
+                      FILTERS & SORTING
+                    </div>
                     <div className="space-y-1">
                       <Label className="text-xs">Start Date</Label>
                       <Input 
@@ -670,6 +682,63 @@ export const Pharmacy = () => {
                         onChange={(e) => setDateRange(prev => ({ ...prev, endDate: e.target.value }))}
                       />
                     </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Medication Name</Label>
+                      <Input 
+                        placeholder="Filter by med..."
+                        value={medicationFilter}
+                        onChange={(e) => setMedicationFilter(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Dispensed By</Label>
+                      <Input 
+                        placeholder="Filter by user..."
+                        value={userFilter}
+                        onChange={(e) => setUserFilter(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Sort By</Label>
+                      <select 
+                        className="w-full h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                        value={sortBy}
+                        onChange={(e) => setSortBy(e.target.value)}
+                      >
+                        <option value="date">Date</option>
+                        <option value="medication">Medication</option>
+                        <option value="user">Dispensing User</option>
+                        <option value="revenue">Revenue</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Sort Order</Label>
+                      <select 
+                        className="w-full h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                        value={sortOrder}
+                        onChange={(e) => setSortOrder(e.target.value as 'asc' | 'desc')}
+                      >
+                        <option value="asc">Ascending</option>
+                        <option value="desc">Descending</option>
+                      </select>
+                    </div>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="w-full text-xs h-8"
+                      onClick={() => {
+                        setMedicationFilter('');
+                        setUserFilter('');
+                        setSortBy('date');
+                        setSortOrder('desc');
+                        setDateRange({
+                          startDate: new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0],
+                          endDate: new Date().toISOString().split('T')[0]
+                        });
+                      }}
+                    >
+                      Clear Filters
+                    </Button>
                   </div>
                 )}
 
@@ -846,7 +915,12 @@ export const Pharmacy = () => {
 
                     {reportType === 'dispensed' && (
                       <div className="space-y-8">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-4">
+                          <h4 className="font-semibold flex items-center gap-2">
+                            <BarChart3 className="w-4 h-4 text-primary" />
+                            Report Summary
+                          </h4>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                           <Card className="bg-slate-50 border-none shadow-none">
                             <CardContent className="pt-6">
                               <div className="flex items-center gap-2 text-muted-foreground mb-1">
@@ -867,32 +941,107 @@ export const Pharmacy = () => {
                               </div>
                             </CardContent>
                           </Card>
+                          <Card className="bg-blue-50 border-none shadow-none">
+                            <CardContent className="pt-6">
+                              <div className="flex items-center gap-2 text-blue-600 mb-1">
+                                <Banknote className="w-4 h-4" />
+                                <span className="text-xs font-medium uppercase tracking-wider">Total Revenue (UGX)</span>
+                              </div>
+                              <div className="text-2xl font-bold text-blue-700">
+                                {reportData?.summary?.reduce((sum: number, item: any) => sum + item.totalPrice, 0).toLocaleString() || 0}
+                              </div>
+                            </CardContent>
+                          </Card>
                         </div>
-
-                        <div className="space-y-4">
-                          <h4 className="font-semibold">Dispensing Summary by Medication</h4>
+                      </div>
+                      <div className="space-y-4">
+                          <h4 className="font-semibold flex items-center gap-2">
+                            <Pill className="w-4 h-4 text-primary" />
+                            Medication Summary
+                          </h4>
                           <Table>
                             <TableHeader>
                               <TableRow>
                                 <TableHead>Medication</TableHead>
                                 <TableHead className="text-center">Total Dispensed</TableHead>
                                 <TableHead className="text-center">Prescriptions</TableHead>
+                                <TableHead className="text-right">Total Price (UGX)</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
                               {(reportData?.summary?.length || 0) === 0 ? (
                                 <TableRow>
-                                  <TableCell colSpan={3} className="text-center py-4 text-muted-foreground">
-                                    No data for the selected period.
+                                  <TableCell colSpan={4} className="text-center py-10 text-muted-foreground">
+                                    <div className="flex flex-col items-center gap-2">
+                                      <Pill className="w-8 h-8 opacity-20" />
+                                      <p>No medication data found for the selected filters.</p>
+                                    </div>
                                   </TableCell>
                                 </TableRow>
-                              ) : (reportData?.summary || []).map((item: any, idx: number) => (
-                                <TableRow key={idx}>
-                                  <TableCell className="font-medium">{item.name} {item.dosage}</TableCell>
-                                  <TableCell className="text-center">{item.totalDispensed}</TableCell>
-                                  <TableCell className="text-center">{item.prescriptions}</TableCell>
+                              ) : (
+                                (reportData?.summary || []).map((item: any, idx: number) => (
+                                  <TableRow key={idx}>
+                                    <TableCell className="font-medium">{item.name} {item.dosage}</TableCell>
+                                    <TableCell className="text-center">{item.totalDispensed}</TableCell>
+                                    <TableCell className="text-center">{item.prescriptions}</TableCell>
+                                    <TableCell className="text-right font-bold">{item.totalPrice.toLocaleString()}</TableCell>
+                                  </TableRow>
+                                ))
+                              )}
+                            </TableBody>
+                          </Table>
+                        </div>
+                        <div className="space-y-4">
+                          <h4 className="font-semibold flex items-center gap-2">
+                            <History className="w-4 h-4 text-primary" />
+                            Detailed Dispensing Log
+                          </h4>
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Date/Time</TableHead>
+                                <TableHead>Patient</TableHead>
+                                <TableHead>Medications</TableHead>
+                                <TableHead>Dispensed By</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {(reportData?.prescriptions?.length || 0) === 0 ? (
+                                <TableRow>
+                                  <TableCell colSpan={4} className="text-center py-10 text-muted-foreground">
+                                    <div className="flex flex-col items-center gap-2">
+                                      <History className="w-8 h-8 opacity-20" />
+                                      <p>No detailed logs found for the selected filters.</p>
+                                    </div>
+                                  </TableCell>
                                 </TableRow>
-                              ))}
+                              ) : (
+                                (reportData?.prescriptions || []).map((p: any) => (
+                                  <TableRow key={p.id}>
+                                    <TableCell className="text-xs">
+                                      {new Date(p.dispensed_at).toLocaleString()}
+                                    </TableCell>
+                                    <TableCell className="font-medium">{p.patient_name}</TableCell>
+                                    <TableCell>
+                                      <div className="text-xs space-y-1">
+                                        {p.items.map((item: any, idx: number) => (
+                                          <div key={idx}>
+                                            {item.medication_name} ({item.dosage}) x {item.quantity}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </TableCell>
+                                    <TableCell>
+                                      <div className="flex items-center gap-2">
+                                        <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-bold">
+                                          {p.dispensed_by_name?.charAt(0)}
+                                        </div>
+                                        <span className="text-xs">{p.dispensed_by_name}</span>
+                                      </div>
+                                    </TableCell>
+                                  </TableRow>
+                                ))
+                              )}
                             </TableBody>
                           </Table>
                         </div>
