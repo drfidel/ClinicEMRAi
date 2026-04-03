@@ -24,6 +24,7 @@ CREATE TABLE patients (
     phone_number TEXT,
     address TEXT,
     next_of_kin_name TEXT,
+    next_of_kin_relationship TEXT,
     next_of_kin_phone TEXT,
     insurance_provider TEXT,
     insurance_number TEXT,

@@ -1,28 +1,74 @@
 import { useState, useEffect } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
+import ReactQuill from 'react-quill';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
-import { Stethoscope, Activity, Pill, FlaskConical, Thermometer, Heart, Weight, Ruler, Wind, Loader2, Search, CheckCircle2, Plus } from 'lucide-react';
+import { Stethoscope, Activity, Pill, FlaskConical, Thermometer, Heart, Weight, Ruler, Wind, Loader2, Search, CheckCircle2, Plus, Clock, Upload, Calendar, FileText, XCircle } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import axios from 'axios';
 import { useAuthStore } from '@/src/lib/store';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
 
-const LAB_TESTS = [
+export const LAB_TESTS = [
   { id: 'malaria_rdt', name: 'Malaria RDT', category: 'Parasitology', description: 'Rapid diagnostic test for Plasmodium falciparum', price: 5000 },
   { id: 'malaria_bs', name: 'Malaria Blood Smear', category: 'Parasitology', description: 'Microscopic examination of blood for malaria parasites', price: 10000 },
-  { id: 'cbc', name: 'Complete Blood Count (CBC)', category: 'Hematology', description: 'Measures red cells, white cells, and platelets', price: 25000 },
+  { 
+    id: 'cbc', 
+    name: 'Complete Blood Count (CBC)', 
+    category: 'Hematology', 
+    description: 'Measures red cells, white cells, and platelets', 
+    price: 25000,
+    parameters: [
+      { id: 'wbc', name: 'WBC', unit: 'x10^9/L', range: '4.0 - 11.0' },
+      { id: 'rbc', name: 'RBC', unit: 'x10^12/L', range: '4.5 - 5.5' },
+      { id: 'hgb', name: 'Hemoglobin', unit: 'g/dL', range: '13.0 - 17.0' },
+      { id: 'hct', name: 'Hematocrit', unit: '%', range: '40 - 50' },
+      { id: 'mcv', name: 'MCV', unit: 'fL', range: '80 - 100' },
+      { id: 'mch', name: 'MCH', unit: 'pg', range: '27 - 32' },
+      { id: 'mchc', name: 'MCHC', unit: 'g/dL', range: '32 - 36' },
+      { id: 'plt', name: 'Platelets', unit: 'x10^9/L', range: '150 - 450' },
+    ]
+  },
   { id: 'hiv_test', name: 'HIV Rapid Test', category: 'Serology', description: 'Screening for HIV-1 and HIV-2 antibodies', price: 0 },
   { id: 'urinalysis', name: 'Urinalysis', category: 'Biochemistry', description: 'Chemical and microscopic analysis of urine', price: 8000 },
   { id: 'blood_glucose', name: 'Random Blood Glucose', category: 'Biochemistry', description: 'Measures the amount of glucose in the blood', price: 5000 },
-  { id: 'lft', name: 'Liver Function Tests (LFT)', category: 'Biochemistry', description: 'Group of tests to evaluate liver health', price: 45000 },
-  { id: 'rft', name: 'Renal Function Tests (RFT)', category: 'Biochemistry', description: 'Evaluates kidney function (Urea, Creatinine)', price: 40000 },
+  { 
+    id: 'lft', 
+    name: 'Liver Function Tests (LFT)', 
+    category: 'Biochemistry', 
+    description: 'Group of tests to evaluate liver health', 
+    price: 45000,
+    parameters: [
+      { id: 'alt', name: 'ALT', unit: 'U/L', range: '7 - 56' },
+      { id: 'ast', name: 'AST', unit: 'U/L', range: '10 - 40' },
+      { id: 'alp', name: 'ALP', unit: 'U/L', range: '44 - 147' },
+      { id: 'bilirubin_total', name: 'Total Bilirubin', unit: 'mg/dL', range: '0.1 - 1.2' },
+      { id: 'albumin', name: 'Albumin', unit: 'g/dL', range: '3.4 - 5.4' },
+    ]
+  },
+  { 
+    id: 'rft', 
+    name: 'Renal Function Tests (RFT)', 
+    category: 'Biochemistry', 
+    description: 'Evaluates kidney function (Urea, Creatinine)', 
+    price: 40000,
+    parameters: [
+      { id: 'urea', name: 'Urea', unit: 'mg/dL', range: '7 - 20' },
+      { id: 'creatinine', name: 'Creatinine', unit: 'mg/dL', range: '0.6 - 1.2' },
+      { id: 'sodium', name: 'Sodium', unit: 'mEq/L', range: '135 - 145' },
+      { id: 'potassium', name: 'Potassium', unit: 'mEq/L', range: '3.5 - 5.0' },
+    ]
+  },
   { id: 'sputum_afb', name: 'Sputum for AFB (TB)', category: 'Microbiology', description: 'Test for Acid-Fast Bacilli to detect Tuberculosis', price: 0 },
   { id: 'syphilis', name: 'Syphilis (VDRL/RPR)', category: 'Serology', description: 'Nonspecific screening test for syphilis', price: 7000 },
 ];
@@ -75,33 +121,31 @@ const MEDICATIONS = [
   { id: 'cetirizine', name: 'Cetirizine', dosage: '10mg', category: 'Antihistamines' },
 ];
 
+const vitalsSchema = z.object({
+  temperature: z.coerce.number().min(34, "Min 34°C").max(43, "Max 43°C"),
+  blood_pressure: z.string().min(1, "Required").regex(/^\d{2,3}\/\d{2,3}$/, "Format: SYS/DIA (e.g. 120/80)"),
+  pulse: z.coerce.number().int().min(30, "Min 30 bpm").max(200, "Max 200 bpm"),
+  spo2: z.coerce.number().int().min(50, "Min 50%").max(100, "Max 100%"),
+  weight: z.coerce.number().positive("Must be positive"),
+  height: z.coerce.number().positive("Must be positive"),
+});
+
+type VitalsValues = z.infer<typeof vitalsSchema>;
+
 const VitalsForm = ({ appt, onComplete }: { appt: any, onComplete: () => void }) => {
   const { token } = useAuthStore();
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: any) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const data = Object.fromEntries(formData);
-    
-    // Validation
-    const temp = parseFloat(data.temperature as string);
-    const pulse = parseInt(data.pulse as string);
-    const spo2 = parseInt(data.spo2 as string);
+  const { register, handleSubmit, formState: { errors } } = useForm<VitalsValues>({
+    resolver: zodResolver(vitalsSchema),
+    defaultValues: {
+      temperature: 36.5,
+      pulse: 72,
+      spo2: 98,
+    }
+  });
 
-    if (temp < 34 || temp > 43) {
-      toast.error('Temperature must be between 34°C and 43°C');
-      return;
-    }
-    if (pulse < 30 || pulse > 200) {
-      toast.error('Pulse rate must be between 30 and 200 bpm');
-      return;
-    }
-    if (spo2 < 50 || spo2 > 100) {
-      toast.error('Oxygen saturation must be between 50% and 100%');
-      return;
-    }
-
+  const onSubmit = async (data: VitalsValues) => {
     setLoading(true);
     try {
       await axios.post('/api/vitals', {
@@ -121,49 +165,109 @@ const VitalsForm = ({ appt, onComplete }: { appt: any, onComplete: () => void })
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 py-4">
+    <form key={appt.id} onSubmit={handleSubmit(onSubmit)} className="space-y-4 py-4">
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="temperature">Temperature (°C)</Label>
+          <Label htmlFor="temperature" className={cn(errors.temperature && "text-destructive")}>
+            Temperature (°C)
+          </Label>
           <div className="relative">
             <Thermometer className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input id="temperature" name="temperature" type="number" step="0.1" min="34" max="43" className="pl-8" placeholder="36.5" required />
+            <Input 
+              id="temperature" 
+              type="number" 
+              step="0.1" 
+              className={cn("pl-8", errors.temperature && "border-destructive focus-visible:ring-destructive")} 
+              placeholder="36.5" 
+              {...register('temperature')}
+            />
           </div>
+          {errors.temperature && <p className="text-[10px] font-medium text-destructive">{errors.temperature.message}</p>}
         </div>
+
         <div className="space-y-2">
-          <Label htmlFor="blood_pressure">Blood Pressure (mmHg)</Label>
+          <Label htmlFor="blood_pressure" className={cn(errors.blood_pressure && "text-destructive")}>
+            Blood Pressure (mmHg)
+          </Label>
           <div className="relative">
             <Activity className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input id="blood_pressure" name="blood_pressure" className="pl-8" placeholder="120/80" required />
+            <Input 
+              id="blood_pressure" 
+              className={cn("pl-8", errors.blood_pressure && "border-destructive focus-visible:ring-destructive")} 
+              placeholder="120/80" 
+              {...register('blood_pressure')}
+            />
           </div>
+          {errors.blood_pressure && <p className="text-[10px] font-medium text-destructive">{errors.blood_pressure.message}</p>}
         </div>
+
         <div className="space-y-2">
-          <Label htmlFor="pulse">Pulse Rate (bpm)</Label>
+          <Label htmlFor="pulse" className={cn(errors.pulse && "text-destructive")}>
+            Pulse Rate (bpm)
+          </Label>
           <div className="relative">
             <Heart className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input id="pulse" name="pulse" type="number" min="30" max="200" className="pl-8" placeholder="72" required />
+            <Input 
+              id="pulse" 
+              type="number" 
+              className={cn("pl-8", errors.pulse && "border-destructive focus-visible:ring-destructive")} 
+              placeholder="72" 
+              {...register('pulse')}
+            />
           </div>
+          {errors.pulse && <p className="text-[10px] font-medium text-destructive">{errors.pulse.message}</p>}
         </div>
+
         <div className="space-y-2">
-          <Label htmlFor="spo2">Oxygen Saturation (%)</Label>
+          <Label htmlFor="spo2" className={cn(errors.spo2 && "text-destructive")}>
+            Oxygen Saturation (%)
+          </Label>
           <div className="relative">
             <Wind className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input id="spo2" name="spo2" type="number" min="50" max="100" className="pl-8" placeholder="98" required />
+            <Input 
+              id="spo2" 
+              type="number" 
+              className={cn("pl-8", errors.spo2 && "border-destructive focus-visible:ring-destructive")} 
+              placeholder="98" 
+              {...register('spo2')}
+            />
           </div>
+          {errors.spo2 && <p className="text-[10px] font-medium text-destructive">{errors.spo2.message}</p>}
         </div>
+
         <div className="space-y-2">
-          <Label htmlFor="weight">Weight (kg)</Label>
+          <Label htmlFor="weight" className={cn(errors.weight && "text-destructive")}>
+            Weight (kg)
+          </Label>
           <div className="relative">
             <Weight className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input id="weight" name="weight" type="number" step="0.1" className="pl-8" placeholder="70.0" required />
+            <Input 
+              id="weight" 
+              type="number" 
+              step="0.1" 
+              className={cn("pl-8", errors.weight && "border-destructive focus-visible:ring-destructive")} 
+              placeholder="70.0" 
+              {...register('weight')}
+            />
           </div>
+          {errors.weight && <p className="text-[10px] font-medium text-destructive">{errors.weight.message}</p>}
         </div>
+
         <div className="space-y-2">
-          <Label htmlFor="height">Height (cm)</Label>
+          <Label htmlFor="height" className={cn(errors.height && "text-destructive")}>
+            Height (cm)
+          </Label>
           <div className="relative">
             <Ruler className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input id="height" name="height" type="number" className="pl-8" placeholder="170" required />
+            <Input 
+              id="height" 
+              type="number" 
+              className={cn("pl-8", errors.height && "border-destructive focus-visible:ring-destructive")} 
+              placeholder="170" 
+              {...register('height')}
+            />
           </div>
+          {errors.height && <p className="text-[10px] font-medium text-destructive">{errors.height.message}</p>}
         </div>
       </div>
       <Button type="submit" className="w-full h-11" disabled={loading}>
@@ -176,6 +280,7 @@ const VitalsForm = ({ appt, onComplete }: { appt: any, onComplete: () => void })
 
 const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => void }) => {
   const [vitals, setVitals] = useState<any>(null);
+  const [encounter, setEncounter] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [selectedLabs, setSelectedLabs] = useState<string[]>([]);
   const [selectedImaging, setSelectedImaging] = useState<any[]>([]);
@@ -189,28 +294,110 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
   const [isImagingModalOpen, setIsImagingModalOpen] = useState(false);
   const [isICDModalOpen, setIsICDModalOpen] = useState(false);
   const [isMedModalOpen, setIsMedModalOpen] = useState(false);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [isPharmacySending, setIsPharmacySending] = useState(false);
+  const [isPharmacySent, setIsPharmacySent] = useState(false);
+  const [selectedImagingForReport, setSelectedImagingForReport] = useState<any>(null);
   const [currentMed, setCurrentMed] = useState<any>(null);
   const [currentImaging, setCurrentImaging] = useState<any>(null);
+  const [recentImaging, setRecentImaging] = useState<any[]>([]);
+  const [notes, setNotes] = useState('');
+  const [prescValues, setPrescValues] = useState({ dose: 1, frequency: 3, duration: 5 });
   const { token, user } = useAuthStore();
 
+  const fetchRecentImaging = async () => {
+    try {
+      const res = await axios.get('/api/imaging/orders', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      // Filter for this patient
+      setRecentImaging(res.data.filter((o: any) => o.patient_id === appt.patient_id));
+    } catch (err) {
+      console.error('Failed to fetch recent imaging', err);
+    }
+  };
+
   useEffect(() => {
-    const fetchVitals = async () => {
+    const fetchData = async () => {
+      setLoading(true);
       try {
-        const res = await axios.get(`/api/vitals/${appt.id}`, {
+        // Fetch Vitals
+        const vitalsRes = await axios.get(`/api/vitals/${appt.id}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        if (res.data && res.data.length > 0) {
-          // Get the most recent vitals for this appointment
-          setVitals(res.data[res.data.length - 1]);
+        if (vitalsRes.data && vitalsRes.data.length > 0) {
+          setVitals(vitalsRes.data[vitalsRes.data.length - 1]);
+        }
+
+        // Fetch Encounter if COMPLETED
+        if (appt.status === 'COMPLETED') {
+          const encounterRes = await axios.get(`/api/encounters/appointment/${appt.id}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          if (encounterRes.data) {
+            const enc = encounterRes.data;
+            setEncounter(enc);
+            setSelectedLabs(enc.ordered_labs || []);
+            setSelectedImaging(enc.ordered_imaging || []);
+            setSelectedICD10(enc.icd10_codes || []);
+            setPrescriptions(enc.prescriptions || []);
+            setNotes(enc.notes || '');
+          }
         }
       } catch (err) {
-        console.error('Failed to fetch vitals', err);
+        console.error('Failed to fetch consultation data', err);
       } finally {
         setLoading(false);
       }
     };
-    fetchVitals();
-  }, [appt.id, token]);
+    fetchData();
+    fetchRecentImaging();
+  }, [appt.id, appt.patient_id, appt.status, token]);
+
+  const updateImagingStatus = async (encounterId: number, status: string) => {
+    try {
+      await axios.patch(`/api/imaging/orders/${encounterId}/status`, { status }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      toast.success(`Imaging status updated to ${status}`);
+      fetchRecentImaging();
+    } catch (err) {
+      toast.error('Failed to update imaging status');
+    }
+  };
+
+  const handleAttachReport = async (e: any) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const data = Object.fromEntries(formData);
+
+    try {
+      const findingsStr = String(data.findings);
+      await axios.post('/api/imaging/results', {
+        ...data,
+        encounter_id: selectedImagingForReport.encounter_id,
+        imaging_id: selectedImagingForReport.imaging_id,
+        result_text: findingsStr.substring(0, 50) + (findingsStr.length > 50 ? '...' : ''),
+        file_name: 'report_' + Date.now() + '.pdf' // Simulated file upload
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      // Also update status to REPORTED
+      await axios.patch(`/api/imaging/orders/${selectedImagingForReport.encounter_id}/status`, { 
+        status: 'REPORTED' 
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      toast.success('Imaging report attached successfully');
+      setIsReportModalOpen(false);
+      setSelectedImagingForReport(null);
+      fetchRecentImaging();
+    } catch (err) {
+      toast.error('Failed to attach imaging report');
+    }
+  };
 
   const handleSubmit = async (e: any) => {
     e.preventDefault();
@@ -218,40 +405,54 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
     const data = Object.fromEntries(formData);
     
     // Validation
-    const temp = parseFloat(data.temperature as string);
-    const pulse = parseInt(data.pulse as string);
-    const spo2 = parseInt(data.spo2 as string);
+    const validation = vitalsSchema.safeParse({
+      temperature: data.temperature,
+      blood_pressure: data.blood_pressure,
+      pulse: data.pulse,
+      spo2: data.spo2,
+      weight: data.weight,
+      height: data.height,
+    });
 
-    if (temp && (temp < 34 || temp > 43)) {
-      toast.error('Temperature must be between 34°C and 43°C');
-      return;
-    }
-    if (pulse && (pulse < 30 || pulse > 200)) {
-      toast.error('Pulse rate must be between 30 and 200 bpm');
-      return;
-    }
-    if (spo2 && (spo2 < 50 || spo2 > 100)) {
-      toast.error('Oxygen saturation must be between 50% and 100%');
+    if (!validation.success) {
+      toast.error(validation.error.issues[0].message);
       return;
     }
 
     try {
-      await axios.post('/api/encounters', {
-        ...data,
-        appointment_id: appt.id,
-        patient_id: appt.patient_id,
-        doctor_id: user?.id,
-        ordered_labs: selectedLabs,
-        ordered_imaging: selectedImaging,
-        icd10_codes: selectedICD10,
-        prescriptions: prescriptions
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      toast.success('Consultation completed');
+      if (encounter) {
+        // Update existing encounter
+        await axios.patch(`/api/encounters/${encounter.id}`, {
+          ...data,
+          notes,
+          ordered_labs: selectedLabs,
+          ordered_imaging: selectedImaging,
+          icd10_codes: selectedICD10,
+          prescriptions: prescriptions
+        }, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        toast.success('Consultation updated successfully');
+      } else {
+        // Create new encounter
+        await axios.post('/api/encounters', {
+          ...data,
+          notes,
+          appointment_id: appt.id,
+          patient_id: appt.patient_id,
+          doctor_id: user?.id,
+          ordered_labs: selectedLabs,
+          ordered_imaging: selectedImaging,
+          icd10_codes: selectedICD10,
+          prescriptions: prescriptions
+        }, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        toast.success('Consultation completed');
+      }
       onComplete();
     } catch (err) {
-      toast.error('Failed to save consultation');
+      toast.error(encounter ? 'Failed to update consultation' : 'Failed to save consultation');
     }
   };
 
@@ -312,11 +513,37 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
     
     setIsMedModalOpen(false);
     setCurrentMed(null);
+    setIsPharmacySent(false);
     toast.success('Medication added to prescription');
   };
 
   const removePrescription = (index: number) => {
     setPrescriptions(prev => prev.filter((_, i) => i !== index));
+    setIsPharmacySent(false);
+  };
+
+  const sendToPharmacy = async () => {
+    if (prescriptions.length === 0) {
+      toast.error('No medications prescribed to send');
+      return;
+    }
+    
+    setIsPharmacySending(true);
+    try {
+      await axios.post('/api/pharmacy/prescriptions', {
+        encounter_id: appt.id, // Using appt.id as encounter_id for now as encounter is not yet created
+        patient_id: appt.patient_id,
+        items: prescriptions
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      toast.success('Prescription sent to Pharmacy successfully');
+      setIsPharmacySent(true);
+    } catch (err) {
+      toast.error('Failed to send prescription to Pharmacy');
+    } finally {
+      setIsPharmacySending(false);
+    }
   };
 
   if (loading) {
@@ -329,7 +556,7 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6 py-4">
+    <form key={appt.id} onSubmit={handleSubmit} className="space-y-6 py-4">
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-primary font-semibold">
@@ -348,42 +575,42 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
               <Thermometer className="w-4 h-4 text-muted-foreground" />
               Temp (°C)
             </Label>
-            <Input name="temperature" type="number" step="0.1" min="34" max="43" placeholder="36.5" defaultValue={vitals?.temperature} />
+            <Input name="temperature" type="number" step="0.1" min="34" max="43" placeholder="36.5" defaultValue={encounter?.temperature || vitals?.temperature} />
           </div>
           <div className="space-y-2">
             <Label className="flex items-center gap-2">
               <Heart className="w-4 h-4 text-muted-foreground" />
               BP (mmHg)
             </Label>
-            <Input name="blood_pressure" placeholder="120/80" defaultValue={vitals?.blood_pressure} />
+            <Input name="blood_pressure" placeholder="120/80" defaultValue={encounter?.blood_pressure || vitals?.blood_pressure} />
           </div>
           <div className="space-y-2">
             <Label className="flex items-center gap-2">
               <Activity className="w-4 h-4 text-muted-foreground" />
               Pulse (bpm)
             </Label>
-            <Input name="pulse" type="number" min="30" max="200" placeholder="72" defaultValue={vitals?.pulse} />
+            <Input name="pulse" type="number" min="30" max="200" placeholder="72" defaultValue={encounter?.pulse || vitals?.pulse} />
           </div>
           <div className="space-y-2">
             <Label className="flex items-center gap-2">
               <Weight className="w-4 h-4 text-muted-foreground" />
               Weight (kg)
             </Label>
-            <Input name="weight" type="number" step="0.1" placeholder="70.0" defaultValue={vitals?.weight} />
+            <Input name="weight" type="number" step="0.1" placeholder="70.0" defaultValue={encounter?.weight || vitals?.weight} />
           </div>
           <div className="space-y-2">
             <Label className="flex items-center gap-2">
               <Ruler className="w-4 h-4 text-muted-foreground" />
               Height (cm)
             </Label>
-            <Input name="height" type="number" placeholder="170" defaultValue={vitals?.height} />
+            <Input name="height" type="number" placeholder="170" defaultValue={encounter?.height || vitals?.height} />
           </div>
           <div className="space-y-2">
             <Label className="flex items-center gap-2">
               <Wind className="w-4 h-4 text-muted-foreground" />
               Oxygen Saturation (SpO2 %)
             </Label>
-            <Input name="spo2" type="number" min="50" max="100" placeholder="98" defaultValue={vitals?.spo2} />
+            <Input name="spo2" type="number" min="50" max="100" placeholder="98" defaultValue={encounter?.spo2 || vitals?.spo2} />
           </div>
         </div>
       </div>
@@ -395,29 +622,31 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
           <Stethoscope className="w-5 h-5" />
           <h3>Clinical Assessment</h3>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-2 gap-6">
           <div className="space-y-2">
-            <Label>Symptoms</Label>
-            <Textarea name="symptoms" placeholder="Describe symptoms..." required className="min-h-[100px]" />
+            <Label className="font-semibold">Symptoms</Label>
+            <Textarea name="symptoms" placeholder="Describe symptoms..." required className="min-h-[120px] bg-muted/20" defaultValue={encounter?.symptoms} />
           </div>
           <div className="space-y-2">
-            <Label>Diagnosis</Label>
-            <div className="space-y-2">
-              <Textarea name="diagnosis" placeholder="Enter diagnosis description..." required className="min-h-[80px]" />
-              <div className="flex flex-wrap gap-2">
+            <Label className="font-semibold">Diagnosis</Label>
+            <div className="space-y-3">
+              <Textarea name="diagnosis" placeholder="Enter diagnosis description..." required className="min-h-[80px] bg-muted/20" defaultValue={encounter?.diagnosis} />
+              <div className="flex flex-wrap gap-2 p-2 border rounded-md bg-muted/10">
+                {selectedICD10.length === 0 && <span className="text-xs text-muted-foreground italic">No ICD-10 codes added</span>}
                 {selectedICD10.map(code => (
-                  <Badge key={code} variant="secondary" className="gap-1">
-                    {code} - {ICD10_CODES.find(i => i.code === code)?.name}
-                    <button type="button" onClick={() => toggleICD10(code)} className="ml-1 hover:text-destructive">×</button>
+                  <Badge key={code} variant="secondary" className="gap-1 px-2 py-1">
+                    <span className="font-bold text-primary">{code}</span>
+                    <span className="max-w-[150px] truncate">{ICD10_CODES.find(i => i.code === code)?.name}</span>
+                    <button type="button" onClick={() => toggleICD10(code)} className="ml-1 hover:text-destructive text-lg">×</button>
                   </Badge>
                 ))}
                 <Dialog open={isICDModalOpen} onOpenChange={setIsICDModalOpen}>
                   <DialogTrigger render={
-                    <Button type="button" variant="outline" size="sm" className="h-7 text-[10px] gap-1">
+                    <Button type="button" variant="outline" size="sm" className="h-8 text-[10px] gap-1 border-dashed">
                       <Plus className="w-3 h-3" /> Add ICD-10
                     </Button>
                   } />
-                  <DialogContent className="max-w-md">
+                  <DialogContent className="max-w-5xl">
                     <DialogHeader>
                       <DialogTitle>Select ICD-10 Codes</DialogTitle>
                     </DialogHeader>
@@ -471,8 +700,23 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
           </div>
         </div>
         <div className="space-y-2">
-          <Label>Clinical Notes</Label>
-          <Textarea name="notes" placeholder="Additional notes, history, etc..." className="min-h-[100px]" />
+          <Label className="font-semibold">Clinical Notes</Label>
+          <div className="bg-white rounded-md border">
+            <ReactQuill 
+              theme="snow" 
+              value={notes} 
+              onChange={setNotes}
+              placeholder="Additional notes, history, etc..."
+              modules={{
+                toolbar: [
+                  ['bold', 'italic', 'underline'],
+                  [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                  ['clean']
+                ],
+              }}
+              className="min-h-[150px]"
+            />
+          </div>
         </div>
       </div>
 
@@ -554,7 +798,81 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
             <Search className="w-5 h-5" />
             <h3>Imaging Requests</h3>
           </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground font-medium">Total Imaging: </span>
+            <Badge variant="secondary" className="text-primary font-bold">
+              {selectedImaging.reduce((sum, t) => sum + (t.price || 0), 0).toLocaleString()} UGX
+            </Badge>
+          </div>
         </div>
+
+        <div className="space-y-3">
+          <Label className="text-xs text-muted-foreground uppercase tracking-wider">Search & Add Investigations</Label>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search ultrasound, xray, ct, mri..."
+              className="pl-8"
+              value={imagingSearch}
+              onChange={(e) => setImagingSearch(e.target.value)}
+            />
+            {imagingSearch && (
+              <div className="absolute z-10 w-full mt-1 bg-background border rounded-md shadow-lg max-h-[200px] overflow-y-auto">
+                {IMAGING_TESTS.filter(t => 
+                  t.name.toLowerCase().includes(imagingSearch.toLowerCase()) || 
+                  t.category.toLowerCase().includes(imagingSearch.toLowerCase())
+                ).map(test => (
+                  <div
+                    key={test.id}
+                    className="flex items-center justify-between p-2 hover:bg-accent cursor-pointer border-b last:border-0"
+                    onClick={() => {
+                      setCurrentImaging(test);
+                      setIsImagingModalOpen(true);
+                      setImagingSearch('');
+                    }}
+                  >
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium">{test.name}</span>
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-wider">{test.category}</span>
+                    </div>
+                    <span className="text-xs font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded">
+                      {test.price.toLocaleString()} UGX
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <Label className="text-xs text-muted-foreground uppercase tracking-wider">Quick Select Common Investigations</Label>
+          <div className="flex flex-wrap gap-2">
+            {IMAGING_TESTS.slice(0, 8).map(test => {
+              const isSelected = selectedImaging.some(img => img.id === test.id);
+              return (
+                <Badge
+                  key={test.id}
+                  variant={isSelected ? "default" : "outline"}
+                  className="cursor-pointer hover:bg-primary/90 transition-colors py-1.5 px-3 gap-2"
+                  onClick={() => {
+                    if (isSelected) {
+                      setSelectedImaging(prev => prev.filter(img => img.id !== test.id));
+                    } else {
+                      setCurrentImaging(test);
+                      setIsImagingModalOpen(true);
+                    }
+                  }}
+                >
+                  {test.name}
+                  <span className="opacity-70 text-[10px]">({test.price.toLocaleString()} UGX)</span>
+                  {isSelected && <CheckCircle2 className="w-3 h-3 ml-1" />}
+                </Badge>
+              );
+            })}
+          </div>
+        </div>
+
         {selectedImaging.length > 0 ? (
           <div className="border rounded-lg overflow-hidden">
             <Table>
@@ -615,6 +933,163 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
             No imaging investigations requested yet
           </div>
         )}
+
+        {recentImaging.length > 0 && (
+          <div className="space-y-3 pt-4">
+            <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+              <Clock className="w-4 h-4" />
+              Recent Imaging Status
+            </div>
+            <div className="border rounded-lg overflow-hidden">
+              <Table>
+                <TableHeader className="bg-muted/50">
+                  <TableRow>
+                    <TableHead className="h-9 text-[11px] uppercase">Date</TableHead>
+                    <TableHead className="h-9 text-[11px] uppercase">Investigation</TableHead>
+                    <TableHead className="h-9 text-[11px] uppercase">Status</TableHead>
+                    <TableHead className="h-9 text-[11px] uppercase text-right">Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {recentImaging.map((order) => (
+                    <TableRow key={order.id}>
+                      <TableCell className="py-2 text-xs">
+                        {new Date(order.created_at).toLocaleDateString()}
+                      </TableCell>
+                      <TableCell className="py-2">
+                        <div className="flex flex-wrap gap-1">
+                          {order.ordered_imaging.map((img: any, idx: number) => (
+                            <Badge key={idx} variant="outline" className="text-[10px]">
+                              {img.name}
+                            </Badge>
+                          ))}
+                        </div>
+                      </TableCell>
+                      <TableCell className="py-2">
+                        <Badge variant={
+                          order.status === 'COMPLETED' ? 'default' : 
+                          order.status === 'REPORTED' ? 'outline' :
+                          order.status === 'IN PROGRESS' ? 'secondary' : 'destructive'
+                        }>
+                          {order.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="py-2 text-right">
+                        <div className="flex justify-end gap-2">
+                          {order.results && order.results.length > 0 && (
+                            <Dialog>
+                              <DialogTrigger render={
+                                <Button type="button" variant="ghost" size="sm" className="h-7 text-[10px] gap-1 text-primary">
+                                  <FileText className="w-3 h-3" /> View Result
+                                </Button>
+                              } />
+                              <DialogContent className="max-w-5xl">
+                                <DialogHeader>
+                                  <DialogTitle>Imaging Result</DialogTitle>
+                                </DialogHeader>
+                                <div className="space-y-4 py-4">
+                                  {order.results.map((res: any, rIdx: number) => (
+                                    <div key={rIdx} className="space-y-2 p-3 border rounded bg-muted/30">
+                                      <div className="flex justify-between text-xs text-muted-foreground">
+                                        <span>By {res.radiologist_name}</span>
+                                        <span>{new Date(res.report_date).toLocaleDateString()}</span>
+                                      </div>
+                                      <div>
+                                        <Label className="text-[10px] uppercase text-muted-foreground">Findings</Label>
+                                        <p className="text-sm whitespace-pre-wrap">{res.findings}</p>
+                                      </div>
+                                      <div>
+                                        <Label className="text-[10px] uppercase text-muted-foreground">Impression</Label>
+                                        <p className="text-sm font-semibold">{res.result_text}</p>
+                                      </div>
+                                      {res.file_name && (
+                                        <div className="flex items-center gap-2 text-primary text-xs font-medium bg-primary/5 p-2 rounded border border-primary/10">
+                                          <FileText className="w-3 h-3" />
+                                          <span>{res.file_name}</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </DialogContent>
+                            </Dialog>
+                          )}
+                          {order.status === 'COMPLETED' && (
+                            <Button 
+                              type="button" 
+                              variant="outline" 
+                              size="sm" 
+                              className="h-7 text-[10px] gap-1"
+                              onClick={() => {
+                                setSelectedImagingForReport({
+                                  encounter_id: order.encounter_id,
+                                  imaging_id: order.ordered_imaging[0]?.id, // Simplification for demo
+                                  patient_name: order.patient_name
+                                });
+                                setIsReportModalOpen(true);
+                              }}
+                            >
+                              <Upload className="w-3 h-3" /> Attach Report
+                            </Button>
+                          )}
+                          {order.status === 'COMPLETED' && (
+                            <Button 
+                              type="button" 
+                              variant="outline" 
+                              size="sm" 
+                              className="h-7 text-[10px]"
+                              onClick={() => updateImagingStatus(order.encounter_id, 'REPORTED')}
+                            >
+                              Mark Reported
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        )}
+
+        <Dialog open={isReportModalOpen} onOpenChange={setIsReportModalOpen}>
+          <DialogContent className="max-w-5xl">
+            <DialogHeader>
+              <DialogTitle>Attach Imaging Report</DialogTitle>
+            </DialogHeader>
+            <form onSubmit={handleAttachReport} className="space-y-4 py-4">
+              <div className="grid gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="radiologist_name">Radiologist Name</Label>
+                  <Input id="radiologist_name" name="radiologist_name" placeholder="Dr. John Doe" required />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="report_date">Report Date</Label>
+                  <div className="relative">
+                    <Calendar className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input id="report_date" name="report_date" type="date" className="pl-8" defaultValue={new Date().toISOString().split('T')[0]} required />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="findings">Findings & Impression</Label>
+                  <Textarea id="findings" name="findings" placeholder="Enter radiological findings..." className="min-h-[120px]" required />
+                </div>
+                <div className="space-y-2">
+                  <Label>Upload PDF Report (Simulated)</Label>
+                  <div className="border-2 border-dashed rounded-lg p-6 text-center hover:bg-accent cursor-pointer transition-colors">
+                    <Upload className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
+                    <p className="text-xs text-muted-foreground">Click or drag to upload imaging report (PDF/JPG)</p>
+                  </div>
+                </div>
+              </div>
+              <div className="flex gap-2 pt-4">
+                <Button type="button" variant="outline" className="flex-1" onClick={() => setIsReportModalOpen(false)}>Cancel</Button>
+                <Button type="submit" className="flex-1">Save & Attach Report</Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
 
       <Separator />
@@ -625,7 +1100,27 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
             <Pill className="w-5 h-5" />
             <h3>Prescriptions</h3>
           </div>
-          <Dialog open={isMedModalOpen} onOpenChange={setIsMedModalOpen}>
+          <div className="flex gap-2">
+            {prescriptions.length > 0 && (
+              <Button 
+                type="button" 
+                variant={isPharmacySent ? "secondary" : "default"}
+                size="sm" 
+                className="gap-2"
+                onClick={sendToPharmacy}
+                disabled={isPharmacySending || isPharmacySent}
+              >
+                {isPharmacySending ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : isPharmacySent ? (
+                  <CheckCircle2 className="w-4 h-4" />
+                ) : (
+                  <Upload className="w-4 h-4" />
+                )}
+                {isPharmacySent ? 'Sent to Pharmacy' : 'Send to Pharmacy'}
+              </Button>
+            )}
+            <Dialog open={isMedModalOpen} onOpenChange={setIsMedModalOpen}>
             <DialogTrigger render={
               <Button type="button" variant="outline" size="sm" className="gap-2 relative">
                 <Plus className="w-4 h-4" /> Prescribe Medication
@@ -636,7 +1131,7 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
                 )}
               </Button>
             } />
-            <DialogContent className="max-w-md">
+            <DialogContent className="max-w-5xl">
               <DialogHeader>
                 <DialogTitle>Prescribe Medication</DialogTitle>
               </DialogHeader>
@@ -660,7 +1155,10 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
                       <div 
                         key={med.id} 
                         className="flex items-center justify-between p-3 hover:bg-accent rounded-lg cursor-pointer border transition-colors"
-                        onClick={() => setCurrentMed(med)}
+                        onClick={() => {
+                          setCurrentMed(med);
+                          setPrescValues({ dose: 1, frequency: 3, duration: 5 });
+                        }}
                       >
                         <div>
                           <p className="font-medium">{med.name}</p>
@@ -679,23 +1177,65 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
                   </div>
                   
                   <div className="grid gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="dosage">Dosage</Label>
-                      <Input id="dosage" name="dosage" defaultValue={currentMed.dosage} required />
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="dose">Dose (Units)</Label>
+                        <Input 
+                          id="dose" 
+                          name="dose" 
+                          type="number" 
+                          value={prescValues.dose} 
+                          onChange={(e) => setPrescValues(prev => ({ ...prev, dose: Number(e.target.value) }))}
+                          required 
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="dosage">Strength</Label>
+                        <Input id="dosage" name="dosage" defaultValue={currentMed.dosage} required />
+                      </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label htmlFor="frequency">Frequency</Label>
-                        <Input id="frequency" name="frequency" placeholder="e.g. 1x3" required />
+                        <Label htmlFor="frequency">Frequency (times/day)</Label>
+                        <Input 
+                          id="frequency" 
+                          name="frequency" 
+                          type="number" 
+                          value={prescValues.frequency} 
+                          onChange={(e) => setPrescValues(prev => ({ ...prev, frequency: Number(e.target.value) }))}
+                          placeholder="e.g. 3" 
+                          required 
+                        />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="duration">Duration</Label>
-                        <Input id="duration" name="duration" placeholder="e.g. 5 days" required />
+                        <Label htmlFor="duration">Duration (days)</Label>
+                        <Input 
+                          id="duration" 
+                          name="duration" 
+                          type="number" 
+                          value={prescValues.duration} 
+                          onChange={(e) => setPrescValues(prev => ({ ...prev, duration: Number(e.target.value) }))}
+                          placeholder="e.g. 5" 
+                          required 
+                        />
                       </div>
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="instructions">Instructions</Label>
-                      <Input id="instructions" name="instructions" placeholder="e.g. After meals" />
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="quantity">Total Quantity</Label>
+                        <Input 
+                          id="quantity" 
+                          name="quantity" 
+                          type="number" 
+                          value={prescValues.dose * prescValues.frequency * prescValues.duration} 
+                          readOnly 
+                          className="bg-muted font-bold text-primary"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="instructions">Instructions</Label>
+                        <Input id="instructions" name="instructions" placeholder="e.g. After meals" />
+                      </div>
                     </div>
                   </div>
                   
@@ -708,25 +1248,31 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
             </DialogContent>
           </Dialog>
         </div>
+      </div>
         {prescriptions.length > 0 ? (
           <div className="border rounded-lg overflow-hidden">
             <Table>
               <TableHeader className="bg-muted/50">
                 <TableRow>
                   <TableHead className="h-9 text-[11px] uppercase">Medication</TableHead>
-                  <TableHead className="h-9 text-[11px] uppercase">Dosage</TableHead>
-                  <TableHead className="h-9 text-[11px] uppercase">Frequency</TableHead>
-                  <TableHead className="h-9 text-[11px] uppercase">Duration</TableHead>
+                  <TableHead className="h-9 text-[11px] uppercase">Dose</TableHead>
+                  <TableHead className="h-9 text-[11px] uppercase">Freq</TableHead>
+                  <TableHead className="h-9 text-[11px] uppercase">Dur</TableHead>
+                  <TableHead className="h-9 text-[11px] uppercase">Qty</TableHead>
                   <TableHead className="h-9 text-[11px] uppercase text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {prescriptions.map((p, idx) => (
                   <TableRow key={idx}>
-                    <TableCell className="py-2 font-medium">{p.medication_name}</TableCell>
-                    <TableCell className="py-2">{p.dosage}</TableCell>
-                    <TableCell className="py-2">{p.frequency}</TableCell>
-                    <TableCell className="py-2">{p.duration}</TableCell>
+                    <TableCell className="py-2 font-medium">
+                      <div>{p.medication_name}</div>
+                      <div className="text-[10px] text-muted-foreground">{p.dosage}</div>
+                    </TableCell>
+                    <TableCell className="py-2 text-xs">{p.dose}</TableCell>
+                    <TableCell className="py-2 text-xs">{p.frequency}x</TableCell>
+                    <TableCell className="py-2 text-xs">{p.duration}d</TableCell>
+                    <TableCell className="py-2 font-bold text-xs">{p.quantity}</TableCell>
                     <TableCell className="py-2 text-right">
                       <Button 
                         type="button" 
@@ -752,8 +1298,10 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
 
       <Separator />
 
-      <div className="flex gap-2 pt-4">
-        <Button type="submit" className="flex-1 h-11">Complete & Save Consultation</Button>
+      <div className="flex gap-4 pt-6">
+        <Button type="submit" className="flex-1 h-12 text-lg font-semibold shadow-lg hover:shadow-xl transition-all">
+          {encounter ? 'Update Consultation' : 'Complete & Save Consultation'}
+        </Button>
         <div className="flex gap-2">
           <Dialog open={isLabModalOpen} onOpenChange={setIsLabModalOpen}>
             <DialogTrigger render={
@@ -766,7 +1314,7 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
                 )}
               </Button>
             } />
-            <DialogContent className="max-w-md">
+            <DialogContent className="max-w-5xl">
               <DialogHeader>
                 <DialogTitle>Order Laboratory Tests</DialogTitle>
               </DialogHeader>
@@ -871,7 +1419,7 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
                 )}
               </Button>
             } />
-            <DialogContent className="max-w-md">
+            <DialogContent className="max-w-5xl">
               <DialogHeader>
                 <DialogTitle>Request Imaging Investigation</DialogTitle>
               </DialogHeader>
@@ -995,11 +1543,62 @@ export const Clinical = () => {
     return patients.find(p => p.id === patientId);
   };
 
+  const getStatusBadge = (status: string) => {
+    const statusMap: Record<string, { label: string, className: string }> = {
+      'WAITING': { 
+        label: 'Waiting', 
+        className: 'bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-100' 
+      },
+      'TRIAGE': { 
+        label: 'Triage', 
+        className: 'bg-orange-100 text-orange-700 border-orange-200 hover:bg-orange-100' 
+      },
+      'CONSULTATION': { 
+        label: 'Consultation', 
+        className: 'bg-blue-100 text-blue-700 border-blue-200 hover:bg-blue-100' 
+      },
+      'COMPLETED': { 
+        label: 'Completed', 
+        className: 'bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-100' 
+      },
+      'CANCELLED': { 
+        label: 'Cancelled', 
+        className: 'bg-rose-100 text-rose-700 border-rose-200 hover:bg-rose-100' 
+      }
+    };
+
+    const config = statusMap[status] || { label: status, className: 'bg-secondary text-secondary-foreground' };
+
+    return (
+      <Badge 
+        variant="outline" 
+        className={cn(
+          "px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border transition-colors",
+          config.className
+        )}
+      >
+        {config.label}
+      </Badge>
+    );
+  };
+
+  const handleCancelAppointment = async (apptId: number) => {
+    try {
+      await axios.patch(`/api/appointments/${apptId}/status`, { status: 'CANCELLED' }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      toast.success('Appointment cancelled successfully');
+      fetchData();
+    } catch (err) {
+      toast.error('Failed to cancel appointment');
+    }
+  };
+
   const filteredAppointments = appointments.filter(appt => {
     const patient = getPatientInfo(appt.patient_id);
     const searchLower = searchTerm.toLowerCase();
-    const patientName = patient ? `${patient.first_name} ${patient.last_name}`.toLowerCase() : '';
-    const patientIdStr = patient ? patient.patient_id.toLowerCase() : '';
+    const patientName = patient ? String(`${patient.first_name} ${patient.last_name}`).toLowerCase() : '';
+    const patientIdStr = patient ? String(patient.patient_id || '').toLowerCase() : '';
     const reason = appt.reason?.toLowerCase() || '';
 
     return patientName.includes(searchLower) || 
@@ -1058,9 +1657,7 @@ export const Clinical = () => {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={appt.status === 'WAITING' ? 'outline' : 'default'}>
-                        {appt.status}
-                      </Badge>
+                      {getStatusBadge(appt.status)}
                     </TableCell>
                     <TableCell>{appt.reason}</TableCell>
                     <TableCell>{new Date(appt.created_at).toLocaleTimeString()}</TableCell>
@@ -1073,7 +1670,7 @@ export const Clinical = () => {
                               {user?.role === 'DOCTOR' ? 'Start Consultation' : 'Triage'}
                             </Button>
                           } />
-                          <DialogContent className="sm:max-w-[500px]">
+                          <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">
                             <DialogHeader>
                               <DialogTitle>Patient Vitals: {patient ? `${patient.first_name} ${patient.last_name}` : `Patient #${appt.patient_id}`}</DialogTitle>
                             </DialogHeader>
@@ -1088,11 +1685,54 @@ export const Clinical = () => {
                               <Stethoscope className="w-4 h-4" /> Continue Consultation
                             </Button>
                           } />
-                          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                          <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">
                             <DialogHeader>
                               <DialogTitle>Consultation: {patient ? `${patient.first_name} ${patient.last_name}` : `Patient #${appt.patient_id}`}</DialogTitle>
                             </DialogHeader>
                             <ConsultationForm appt={appt} onComplete={fetchData} />
+                          </DialogContent>
+                        </Dialog>
+                      )}
+                      {appt.status === 'COMPLETED' && user?.role === 'DOCTOR' && (
+                        <Dialog>
+                          <DialogTrigger render={
+                            <Button size="sm" variant="outline" className="gap-2 border-primary text-primary hover:bg-primary/5">
+                              <FileText className="w-4 h-4" /> Edit Consultation
+                            </Button>
+                          } />
+                          <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">
+                            <DialogHeader>
+                              <DialogTitle>Edit Consultation: {patient ? `${patient.first_name} ${patient.last_name}` : `Patient #${appt.patient_id}`}</DialogTitle>
+                            </DialogHeader>
+                            <ConsultationForm appt={appt} onComplete={fetchData} />
+                          </DialogContent>
+                        </Dialog>
+                      )}
+                      {appt.status !== 'COMPLETED' && appt.status !== 'CANCELLED' && (user?.role === 'NURSE' || user?.role === 'DOCTOR') && (
+                        <Dialog>
+                          <DialogTrigger render={
+                            <Button size="sm" variant="ghost" className="text-rose-600 hover:text-rose-700 hover:bg-rose-50 gap-2 ml-2">
+                              <XCircle className="w-4 h-4" /> Cancel
+                            </Button>
+                          } />
+                          <DialogContent className="max-w-md">
+                            <DialogHeader>
+                              <DialogTitle>Cancel Appointment</DialogTitle>
+                            </DialogHeader>
+                            <div className="py-6">
+                              <p className="text-muted-foreground">
+                                Are you sure you want to cancel this appointment? This action cannot be undone.
+                              </p>
+                            </div>
+                            <DialogFooter className="gap-2 sm:gap-0">
+                              <DialogClose render={<Button variant="outline">Cancel</Button>} />
+                              <Button 
+                                variant="destructive" 
+                                onClick={() => handleCancelAppointment(appt.id)}
+                              >
+                                Confirm
+                              </Button>
+                            </DialogFooter>
                           </DialogContent>
                         </Dialog>
                       )}

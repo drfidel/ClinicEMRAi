@@ -1,5 +1,5 @@
 import React from 'react';
-import { LucideIcon, LayoutDashboard, Users, Calendar, Stethoscope, FlaskConical, Pill, Receipt, BarChart3, Settings, LogOut } from 'lucide-react';
+import { LucideIcon, LayoutDashboard, Users, Calendar, Stethoscope, FlaskConical, Pill, Receipt, BarChart3, Settings, LogOut, Camera, ShieldAlert } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/src/lib/store';
 import { Button } from '@/components/ui/button';
@@ -15,14 +15,19 @@ const SidebarItem: React.FC<SidebarItemProps> = ({ icon: Icon, label, active, on
   <button
     onClick={onClick}
     className={cn(
-      "flex items-center w-full gap-3 px-4 py-3 text-sm font-medium transition-colors rounded-lg",
+      "flex items-center w-full gap-3 px-4 py-2.5 text-sm transition-all duration-200 rounded-lg group relative",
       active 
-        ? "bg-primary text-primary-foreground" 
-        : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+        ? "bg-primary text-primary-foreground font-bold shadow-sm" 
+        : "text-muted-foreground font-medium hover:bg-accent hover:text-accent-foreground"
     )}
   >
-    <Icon className="w-5 h-5" />
-    {label}
+    {active && (
+      <div className="absolute left-0 w-1 h-6 bg-primary-foreground rounded-r-full" />
+    )}
+    <div className="flex items-center justify-center w-5 h-5 shrink-0">
+      <Icon className={cn("w-5 h-5 transition-transform", active ? "scale-110" : "group-hover:scale-110")} />
+    </div>
+    <span className="truncate">{label}</span>
   </button>
 );
 
@@ -35,9 +40,11 @@ export const Sidebar = ({ currentTab, setTab }: { currentTab: string, setTab: (t
     { id: 'appointments', label: 'Appointments', icon: Calendar, roles: ['ADMIN', 'DOCTOR', 'NURSE', 'RECEPTIONIST'] },
     { id: 'clinical', label: 'Clinical', icon: Stethoscope, roles: ['ADMIN', 'DOCTOR', 'NURSE'] },
     { id: 'lab', label: 'Laboratory', icon: FlaskConical, roles: ['ADMIN', 'LAB_TECH', 'DOCTOR'] },
+    { id: 'imaging', label: 'Imaging', icon: Camera, roles: ['ADMIN', 'LAB_TECH', 'DOCTOR'] },
     { id: 'pharmacy', label: 'Pharmacy', icon: Pill, roles: ['ADMIN', 'PHARMACIST', 'DOCTOR'] },
     { id: 'billing', label: 'Billing', icon: Receipt, roles: ['ADMIN', 'RECEPTIONIST'] },
     { id: 'reports', label: 'Reports', icon: BarChart3, roles: ['ADMIN'] },
+    { id: 'audit', label: 'Audit Trail', icon: ShieldAlert, roles: ['ADMIN'] },
   ];
 
   const filteredItems = menuItems.filter(item => user && item.roles.includes(user.role));
@@ -73,10 +80,12 @@ export const Sidebar = ({ currentTab, setTab }: { currentTab: string, setTab: (t
         </div>
         <Button 
           variant="ghost" 
-          className="w-full justify-start gap-3 text-destructive hover:text-destructive hover:bg-destructive/10"
+          className="w-full justify-start gap-3 px-4 py-2.5 text-sm font-medium text-destructive hover:text-destructive hover:bg-destructive/10 transition-all duration-200 group"
           onClick={logout}
         >
-          <LogOut className="w-5 h-5" />
+          <div className="flex items-center justify-center w-5 h-5 shrink-0">
+            <LogOut className="w-5 h-5 group-hover:scale-110 transition-transform" />
+          </div>
           Logout
         </Button>
       </div>

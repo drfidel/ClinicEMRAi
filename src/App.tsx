@@ -5,7 +5,11 @@ import { Dashboard } from '@/components/Dashboard';
 import { Patients } from '@/components/Patients';
 import { Appointments } from '@/components/Appointments';
 import { Clinical } from '@/components/Clinical';
+import { Laboratory } from '@/components/Laboratory';
+import { Imaging } from '@/components/Imaging';
+import { Pharmacy } from '@/components/Pharmacy';
 import { Billing } from '@/components/Billing';
+import { AuditLogs } from '@/components/AuditLogs';
 import { Login } from '@/components/Login';
 import { Toaster } from '@/components/ui/sonner';
 
@@ -32,8 +36,16 @@ export default function App() {
         return <Appointments />;
       case 'clinical':
         return <Clinical />;
+      case 'lab':
+        return <Laboratory />;
+      case 'imaging':
+        return <Imaging />;
+      case 'pharmacy':
+        return <Pharmacy />;
       case 'billing':
         return <Billing />;
+      case 'audit':
+        return <AuditLogs />;
       default:
         return (
           <div className="flex flex-col items-center justify-center h-full text-center">
