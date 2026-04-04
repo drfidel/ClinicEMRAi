@@ -8,7 +8,7 @@ import {
 } from 'recharts';
 import { 
   Download, FileText, TrendingUp, TrendingDown, Users, 
-  Activity, DollarSign, Calendar, Loader2, Filter, RefreshCcw
+  Activity, DollarSign, Calendar, Loader2, Filter, RefreshCcw, Pill, UserPlus
 } from 'lucide-react';
 import axios from 'axios';
 import { useAuthStore } from '@/src/lib/store';
@@ -17,24 +17,27 @@ import { toast } from 'sonner';
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
 
 export const Reports = () => {
-  const [activeTab, setActiveTab] = useState('financial');
+  const [activeTab, setActiveTab] = useState('daily');
   const [loading, setLoading] = useState(true);
   const [financialData, setFinancialData] = useState<any>(null);
   const [patientData, setPatientData] = useState<any>(null);
   const [clinicalData, setClinicalData] = useState<any>(null);
+  const [dailySummary, setDailySummary] = useState<any>(null);
   const { token } = useAuthStore();
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [finRes, patRes, clinRes] = await Promise.all([
+      const [finRes, patRes, clinRes, dailyRes] = await Promise.all([
         axios.get('/api/reports/financial', { headers: { Authorization: `Bearer ${token}` } }),
         axios.get('/api/reports/patients', { headers: { Authorization: `Bearer ${token}` } }),
-        axios.get('/api/reports/clinical', { headers: { Authorization: `Bearer ${token}` } })
+        axios.get('/api/reports/clinical', { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get('/api/reports/daily-summary', { headers: { Authorization: `Bearer ${token}` } })
       ]);
       setFinancialData(finRes.data);
       setPatientData(patRes.data);
       setClinicalData(clinRes.data);
+      setDailySummary(dailyRes.data);
     } catch (err) {
       toast.error('Failed to fetch report data');
       console.error(err);
@@ -96,6 +99,9 @@ export const Reports = () => {
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList>
+          <TabsTrigger value="daily" className="gap-2">
+            <Calendar className="w-4 h-4" /> Daily Summary
+          </TabsTrigger>
           <TabsTrigger value="financial" className="gap-2">
             <DollarSign className="w-4 h-4" /> Financial
           </TabsTrigger>
@@ -106,6 +112,86 @@ export const Reports = () => {
             <Activity className="w-4 h-4" /> Clinical
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="daily" className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Patients Seen Today</CardTitle>
+                <Users className="h-4 w-4 text-primary" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{dailySummary?.metrics.patientsSeen}</div>
+                <p className="text-xs text-muted-foreground">Total clinical encounters</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">New Registrations</CardTitle>
+                <UserPlus className="h-4 w-4 text-emerald-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{dailySummary?.metrics.newRegistrations}</div>
+                <p className="text-xs text-muted-foreground">New patient records created</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Revenue Collected Today</CardTitle>
+                <DollarSign className="h-4 w-4 text-emerald-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-emerald-600">
+                  {dailySummary?.metrics.revenueCollected.toLocaleString()} UGX
+                </div>
+                <p className="text-xs text-muted-foreground">Actual cash/mobile money received</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Prescriptions Dispensed</CardTitle>
+                <Pill className="h-4 w-4 text-blue-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{dailySummary?.metrics.prescriptionsDispensed}</div>
+                <p className="text-xs text-muted-foreground">Pharmacy orders completed</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Daily Summary for {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</CardTitle>
+              <CardDescription>Snapshot of today's key performance indicators.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="p-4 border rounded-lg bg-muted/30">
+                    <h4 className="text-sm font-semibold mb-1">Clinical Activity</h4>
+                    <p className="text-2xl font-bold">{dailySummary?.metrics.patientsSeen}</p>
+                    <p className="text-xs text-muted-foreground">Patients attended to by medical staff.</p>
+                  </div>
+                  <div className="p-4 border rounded-lg bg-muted/30">
+                    <h4 className="text-sm font-semibold mb-1">Registration Growth</h4>
+                    <p className="text-2xl font-bold">{dailySummary?.metrics.newRegistrations}</p>
+                    <p className="text-xs text-muted-foreground">New patients added to the system.</p>
+                  </div>
+                  <div className="p-4 border rounded-lg bg-muted/30">
+                    <h4 className="text-sm font-semibold mb-1">Financial Inflow</h4>
+                    <p className="text-2xl font-bold text-emerald-600">{dailySummary?.metrics.revenueCollected.toLocaleString()} UGX</p>
+                    <p className="text-xs text-muted-foreground">Total payments processed today.</p>
+                  </div>
+                  <div className="p-4 border rounded-lg bg-muted/30">
+                    <h4 className="text-sm font-semibold mb-1">Pharmacy Output</h4>
+                    <p className="text-2xl font-bold text-blue-600">{dailySummary?.metrics.prescriptionsDispensed}</p>
+                    <p className="text-xs text-muted-foreground">Prescriptions successfully dispensed.</p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="financial" className="space-y-4">
           <div className="grid gap-4 md:grid-cols-3">

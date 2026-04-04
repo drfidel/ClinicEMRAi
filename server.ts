@@ -1305,6 +1305,58 @@ async function startServer() {
     });
   });
 
+  app.get('/api/reports/daily-summary', authenticateToken, (req, res) => {
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const endOfToday = new Date();
+    endOfToday.setHours(23, 59, 59, 999);
+
+    // 1. Total patients seen today (encounters today)
+    const patientsSeenToday = mockDb.encounters.filter(e => {
+      const encounterDate = new Date(e.created_at);
+      return encounterDate >= startOfToday && encounterDate <= endOfToday;
+    }).length;
+
+    // 2. Number of new registrations today
+    const newRegistrationsToday = mockDb.patients.filter(p => {
+      const registrationDate = new Date(p.created_at);
+      return registrationDate >= startOfToday && registrationDate <= endOfToday;
+    }).length;
+
+    // 3. Total revenue collected today (sum of all payments made today)
+    let revenueCollectedToday = 0;
+    mockDb.invoices.forEach(inv => {
+      if (inv.payments) {
+        inv.payments.forEach(p => {
+          const paymentDate = new Date(p.date);
+          if (paymentDate >= startOfToday && paymentDate <= endOfToday) {
+            revenueCollectedToday += p.amount;
+          }
+        });
+      }
+    });
+
+    // 4. Total prescriptions dispensed today
+    const prescriptionsDispensedToday = mockDb.pharmacy_prescriptions.filter(p => {
+      if (p.status === 'DISPENSED' && p.dispensed_at) {
+        const dispensedDate = new Date(p.dispensed_at);
+        return dispensedDate >= startOfToday && dispensedDate <= endOfToday;
+      }
+      return false;
+    }).length;
+
+    res.json({
+      date: today,
+      metrics: {
+        patientsSeen: patientsSeenToday,
+        newRegistrations: newRegistrationsToday,
+        revenueCollected: revenueCollectedToday,
+        prescriptionsDispensed: prescriptionsDispensedToday
+      }
+    });
+  });
+
   // --- Audit Log Routes ---
   app.get('/api/audit_logs', authenticateToken, (req, res) => {
     // Only admins can view audit logs

@@ -15,10 +15,12 @@ export const Billing = () => {
   const [invoices, setInvoices] = useState<any[]>([]);
   const [services, setServices] = useState<any[]>([]);
   const [inventory, setInventory] = useState<any[]>([]);
+  const [patients, setPatients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [serviceSearchQuery, setServiceSearchQuery] = useState('');
   const [inventorySearchQuery, setInventorySearchQuery] = useState('');
+  const [patientSearchQuery, setPatientSearchQuery] = useState('');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string | null>(null);
   const [referenceNumber, setReferenceNumber] = useState('');
   const [paymentAmount, setPaymentAmount] = useState('');
@@ -82,10 +84,22 @@ export const Billing = () => {
     }
   };
 
+  const fetchPatients = async () => {
+    try {
+      const res = await axios.get('/api/patients', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setPatients(res.data);
+    } catch (err) {
+      console.error('Failed to fetch patients', err);
+    }
+  };
+
   useEffect(() => {
     fetchInvoices();
     fetchServices();
     fetchInventory();
+    fetchPatients();
   }, [token]);
 
   const handlePayment = async (id: number, method: string, ref?: string, amount?: number) => {
@@ -241,6 +255,54 @@ export const Billing = () => {
               <DialogTitle>Create New Sale / Invoice</DialogTitle>
             </DialogHeader>
             <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label className="text-xs uppercase text-muted-foreground">Patient Lookup</Label>
+                <div className="relative">
+                  <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input 
+                    placeholder="Search by ID or Name..." 
+                    className="pl-8" 
+                    value={patientSearchQuery}
+                    onChange={(e) => setPatientSearchQuery(e.target.value)}
+                  />
+                </div>
+                {patientSearchQuery && (
+                  <div className="border rounded-md max-h-[150px] overflow-y-auto bg-card shadow-sm">
+                    {patients
+                      .filter(p => 
+                        p.patient_id.toLowerCase().includes(patientSearchQuery.toLowerCase()) ||
+                        `${p.first_name} ${p.last_name}`.toLowerCase().includes(patientSearchQuery.toLowerCase())
+                      )
+                      .map((p) => (
+                        <button
+                          key={p.id}
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors border-b last:border-0 flex justify-between items-center"
+                          onClick={() => {
+                            setNewInvoiceForm({
+                              ...newInvoiceForm,
+                              patient_id: p.patient_id,
+                              name: `${p.first_name} ${p.last_name}`
+                            });
+                            setPatientSearchQuery('');
+                          }}
+                        >
+                          <div>
+                            <span className="font-medium">{p.first_name} {p.last_name}</span>
+                            <span className="ml-2 text-xs text-muted-foreground">{p.patient_id}</span>
+                          </div>
+                          <Plus className="w-3 h-3 text-primary" />
+                        </button>
+                      ))}
+                    {patients.filter(p => 
+                      p.patient_id.toLowerCase().includes(patientSearchQuery.toLowerCase()) ||
+                      `${p.first_name} ${p.last_name}`.toLowerCase().includes(patientSearchQuery.toLowerCase())
+                    ).length === 0 && (
+                      <div className="p-3 text-xs text-muted-foreground text-center">No patients found</div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="pos-patient-id">Patient ID</Label>
@@ -776,6 +838,98 @@ export const Billing = () => {
                   value={editInvoiceForm.name}
                   onChange={(e) => setEditInvoiceForm({...editInvoiceForm, name: e.target.value})}
                 />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs uppercase text-muted-foreground">Quick Add Services</Label>
+                <div className="relative w-40">
+                  <Search className="absolute left-2 top-2 h-3 w-3 text-muted-foreground" />
+                  <Input 
+                    placeholder="Search services..." 
+                    className="pl-7 h-7 text-[10px]" 
+                    value={serviceSearchQuery}
+                    onChange={(e) => setServiceSearchQuery(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2 max-h-[120px] overflow-y-auto p-1 border rounded-md">
+                {services
+                  .filter(s => s.name.toLowerCase().includes(serviceSearchQuery.toLowerCase()))
+                  .map((service) => (
+                    <Button 
+                      key={service.id} 
+                      variant="outline" 
+                      size="sm" 
+                      className="text-[10px] h-7 px-2 hover:bg-primary hover:text-primary-foreground transition-colors"
+                      onClick={() => {
+                        const lastItem = editInvoiceForm.items[editInvoiceForm.items.length - 1];
+                        if (!lastItem.description && !lastItem.amount) {
+                          const newItems = [...editInvoiceForm.items];
+                          newItems[editInvoiceForm.items.length - 1] = { description: service.name, amount: String(service.amount) };
+                          setEditInvoiceForm({...editInvoiceForm, items: newItems});
+                        } else {
+                          setEditInvoiceForm({
+                            ...editInvoiceForm, 
+                            items: [...editInvoiceForm.items, { description: service.name, amount: String(service.amount) }]
+                          });
+                        }
+                      }}
+                    >
+                      {service.name}
+                    </Button>
+                  ))}
+                {services.filter(s => s.name.toLowerCase().includes(serviceSearchQuery.toLowerCase())).length === 0 && (
+                  <p className="text-[10px] text-muted-foreground p-2">No services found</p>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs uppercase text-muted-foreground">Quick Add Medications</Label>
+                <div className="relative w-40">
+                  <Search className="absolute left-2 top-2 h-3 w-3 text-muted-foreground" />
+                  <Input 
+                    placeholder="Search meds..." 
+                    className="pl-7 h-7 text-[10px]" 
+                    value={inventorySearchQuery}
+                    onChange={(e) => setInventorySearchQuery(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2 max-h-[120px] overflow-y-auto p-1 border rounded-md">
+                {inventory
+                  .filter(i => i.name.toLowerCase().includes(inventorySearchQuery.toLowerCase()))
+                  .map((item) => (
+                    <Button 
+                      key={item.id} 
+                      variant="outline" 
+                      size="sm" 
+                      className="text-[10px] h-7 px-2 border-emerald-200 text-emerald-700 hover:bg-emerald-600 hover:text-white transition-colors"
+                      onClick={() => {
+                        const lastItem = editInvoiceForm.items[editInvoiceForm.items.length - 1];
+                        const description = `${item.name} (${item.dosage})`;
+                        const amount = String(item.price_per_unit);
+                        if (!lastItem.description && !lastItem.amount) {
+                          const newItems = [...editInvoiceForm.items];
+                          newItems[editInvoiceForm.items.length - 1] = { description, amount };
+                          setEditInvoiceForm({...editInvoiceForm, items: newItems});
+                        } else {
+                          setEditInvoiceForm({
+                            ...editInvoiceForm, 
+                            items: [...editInvoiceForm.items, { description, amount }]
+                          });
+                        }
+                      }}
+                    >
+                      {item.name}
+                    </Button>
+                  ))}
+                {inventory.filter(i => i.name.toLowerCase().includes(inventorySearchQuery.toLowerCase())).length === 0 && (
+                  <p className="text-[10px] text-muted-foreground p-2">No medications found</p>
+                )}
               </div>
             </div>
 
