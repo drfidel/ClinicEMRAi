@@ -119,6 +119,14 @@ const MEDICATIONS = [
   { id: 'amlodipine', name: 'Amlodipine', dosage: '5mg', category: 'Cardiovascular' },
   { id: 'metformin', name: 'Metformin', dosage: '500mg', category: 'Antidiabetics' },
   { id: 'cetirizine', name: 'Cetirizine', dosage: '10mg', category: 'Antihistamines' },
+  { id: 'catheter_14', name: 'Foley Catheter', dosage: 'Size 14', category: 'Sundries' },
+  { id: 'catheter_16', name: 'Foley Catheter', dosage: 'Size 16', category: 'Sundries' },
+  { id: 'gloves_latex', name: 'Surgical Gloves', dosage: 'Latex (Medium)', category: 'Supplies' },
+  { id: 'gloves_nitrile', name: 'Examination Gloves', dosage: 'Nitrile (Large)', category: 'Supplies' },
+  { id: 'cannula_g20', name: 'IV Cannula', dosage: 'G20 (Pink)', category: 'Supplies' },
+  { id: 'cannula_g22', name: 'IV Cannula', dosage: 'G22 (Blue)', category: 'Supplies' },
+  { id: 'syringe_5ml', name: 'Disposable Syringe', dosage: '5ml', category: 'Supplies' },
+  { id: 'gauze_roll', name: 'Gauze Roll', dosage: '10cm x 3m', category: 'Sundries' },
 ];
 
 const vitalsSchema = z.object({
@@ -1672,7 +1680,7 @@ export const Clinical = () => {
                           } />
                           <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">
                             <DialogHeader>
-                              <DialogTitle>Patient Vitals: {patient ? `${patient.first_name} ${patient.last_name}` : `Patient #${appt.patient_id}`}</DialogTitle>
+                              <DialogTitle>Patient Vitals: {patient ? `${patient.first_name} ${patient.last_name} (${patient.patient_id})` : `Patient #${appt.patient_id}`}</DialogTitle>
                             </DialogHeader>
                             <VitalsForm appt={appt} onComplete={fetchData} />
                           </DialogContent>
@@ -1687,7 +1695,7 @@ export const Clinical = () => {
                           } />
                           <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">
                             <DialogHeader>
-                              <DialogTitle>Consultation: {patient ? `${patient.first_name} ${patient.last_name}` : `Patient #${appt.patient_id}`}</DialogTitle>
+                              <DialogTitle>Consultation: {patient ? `${patient.first_name} ${patient.last_name} (${patient.patient_id})` : `Patient #${appt.patient_id}`}</DialogTitle>
                             </DialogHeader>
                             <ConsultationForm appt={appt} onComplete={fetchData} />
                           </DialogContent>
@@ -1702,7 +1710,7 @@ export const Clinical = () => {
                           } />
                           <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">
                             <DialogHeader>
-                              <DialogTitle>Edit Consultation: {patient ? `${patient.first_name} ${patient.last_name}` : `Patient #${appt.patient_id}`}</DialogTitle>
+                              <DialogTitle>Edit Consultation: {patient ? `${patient.first_name} ${patient.last_name} (${patient.patient_id})` : `Patient #${appt.patient_id}`}</DialogTitle>
                             </DialogHeader>
                             <ConsultationForm appt={appt} onComplete={fetchData} />
                           </DialogContent>

@@ -24,6 +24,8 @@ export const Pharmacy = () => {
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [updatingStatusId, setUpdatingStatusId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState('queue');
+  const [inventorySearchQuery, setInventorySearchQuery] = useState('');
+  const [inventoryCategoryFilter, setInventoryCategoryFilter] = useState('all');
   
   // Stock Adjustment State
   const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);
@@ -32,6 +34,25 @@ export const Pharmacy = () => {
   const [adjustmentAmount, setAdjustmentAmount] = useState('');
   const [adjustmentReason, setAdjustmentReason] = useState('');
   const [isAdjusting, setIsAdjusting] = useState(false);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [stockHistory, setStockHistory] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  // Add/Edit Medication State
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [medicationForm, setMedicationForm] = useState({
+    name: '',
+    dosage: '',
+    category: '',
+    stock: '',
+    maxStock: '',
+    reorderLevel: '',
+    unit: '',
+    expiry_date: '',
+    price_per_unit: ''
+  });
+  const [isSubmittingMedication, setIsSubmittingMedication] = useState(false);
 
   // Reporting State
   const [reportType, setReportType] = useState<'inventory' | 'expiring' | 'dispensed'>('inventory');
@@ -47,13 +68,14 @@ export const Pharmacy = () => {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   const { token, user } = useAuthStore();
+  const canManageMedications = user && ['ADMIN', 'DOCTOR', 'NURSE', 'PHARMACIST'].includes(user.role);
 
   const fetchPrescriptions = async () => {
     try {
       const res = await axios.get('/api/pharmacy/prescriptions', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setPrescriptions(res.data);
+      setPrescriptions(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
       toast.error('Failed to fetch prescriptions');
     } finally {
@@ -67,11 +89,25 @@ export const Pharmacy = () => {
       const res = await axios.get('/api/pharmacy/inventory', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setInventory(res.data);
+      setInventory(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
       toast.error('Failed to fetch inventory');
     } finally {
       setInventoryLoading(false);
+    }
+  };
+
+  const fetchStockHistory = async (itemId: string) => {
+    setHistoryLoading(true);
+    try {
+      const res = await axios.get(`/api/pharmacy/inventory/${itemId}/history`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setStockHistory(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      toast.error('Failed to fetch stock history');
+    } finally {
+      setHistoryLoading(false);
     }
   };
 
@@ -137,6 +173,51 @@ export const Pharmacy = () => {
     }
   };
 
+  const handleAddMedication = async () => {
+    if (!medicationForm.name || !medicationForm.dosage || !medicationForm.stock || !medicationForm.price_per_unit) {
+      toast.error('Please fill in all required fields');
+      return;
+    }
+
+    setIsSubmittingMedication(true);
+    try {
+      await axios.post('/api/pharmacy/inventory', medicationForm, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      toast.success('Medication added successfully');
+      setIsAddModalOpen(false);
+      setMedicationForm({
+        name: '', dosage: '', category: '', stock: '', maxStock: '', reorderLevel: '', unit: '', expiry_date: '', price_per_unit: ''
+      });
+      fetchInventory();
+    } catch (err) {
+      toast.error('Failed to add medication');
+    } finally {
+      setIsSubmittingMedication(false);
+    }
+  };
+
+  const handleEditMedication = async () => {
+    if (!selectedItem || !medicationForm.name || !medicationForm.dosage) {
+      toast.error('Please fill in all required fields');
+      return;
+    }
+
+    setIsSubmittingMedication(true);
+    try {
+      await axios.patch(`/api/pharmacy/inventory/${selectedItem.id}`, medicationForm, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      toast.success('Medication updated successfully');
+      setIsEditModalOpen(false);
+      fetchInventory();
+    } catch (err) {
+      toast.error('Failed to update medication');
+    } finally {
+      setIsSubmittingMedication(false);
+    }
+  };
+
   const updateStatus = async (id: number, status: string) => {
     setUpdatingStatusId(id);
     try {
@@ -155,10 +236,22 @@ export const Pharmacy = () => {
     }
   };
 
-  const filteredPrescriptions = prescriptions.filter(p => 
+  const filteredPrescriptions = Array.isArray(prescriptions) ? prescriptions.filter(p => 
     String(p.patient_id || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
     (p.patient_name && String(p.patient_name).toLowerCase().includes(searchQuery.toLowerCase()))
-  );
+  ) : [];
+
+  const filteredInventory = Array.isArray(inventory) ? inventory.filter(item => {
+    const matchesSearch = item.name.toLowerCase().includes(inventorySearchQuery.toLowerCase()) || 
+                         (item.category && item.category.toLowerCase().includes(inventorySearchQuery.toLowerCase())) ||
+                         (item.dosage && item.dosage.toLowerCase().includes(inventorySearchQuery.toLowerCase()));
+    const matchesCategory = inventoryCategoryFilter === 'all' || item.category === inventoryCategoryFilter;
+    return matchesSearch && matchesCategory;
+  }) : [];
+
+  const inventoryCategories = Array.isArray(inventory) 
+    ? ['all', ...new Set(inventory.map(i => i.category).filter(Boolean))] 
+    : ['all'];
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -294,7 +387,7 @@ export const Pharmacy = () => {
                           } />
                           <DialogContent className="max-w-2xl">
                             <DialogHeader>
-                              <DialogTitle>Prescription Details - {p.patient_name}</DialogTitle>
+                              <DialogTitle>Prescription Details - {p.patient_name} ({p.patient_id})</DialogTitle>
                             </DialogHeader>
                             <div className="space-y-6 py-4">
                               <div className="grid grid-cols-2 gap-4 text-sm">
@@ -322,7 +415,7 @@ export const Pharmacy = () => {
                                       <TableBody>
                                         {p.items.map((item: any, idx: number) => {
                                           const invItem = inventory.find(i => i.name === item.medication_name);
-                                          const availableStock = inventory.filter(i => i.name === item.medication_name);
+                                          const availableStock = Array.isArray(inventory) ? inventory.filter(i => i.name === item.medication_name) : [];
                                           const nearestExpiry = availableStock.length > 0 
                                             ? [...availableStock].sort((a, b) => new Date(a.expiry_date).getTime() - new Date(b.expiry_date).getTime())[0]
                                             : null;
@@ -441,10 +534,32 @@ export const Pharmacy = () => {
         <TabsContent value="inventory">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="flex items-center gap-2">
-                <Package className="w-5 h-5 text-primary" />
-                Medication Stock
-              </CardTitle>
+              <div className="space-y-1">
+                <CardTitle className="flex items-center gap-2">
+                  <Package className="w-5 h-5 text-primary" />
+                  Inventory Stock
+                </CardTitle>
+                <div className="flex items-center gap-2">
+                  <div className="relative w-64">
+                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search items..."
+                      className="pl-8 h-8"
+                      value={inventorySearchQuery}
+                      onChange={(e) => setInventorySearchQuery(e.target.value)}
+                    />
+                  </div>
+                  <select 
+                    className="h-8 rounded-md border border-input bg-background px-3 py-1 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    value={inventoryCategoryFilter}
+                    onChange={(e) => setInventoryCategoryFilter(e.target.value)}
+                  >
+                    {inventoryCategories.map(cat => (
+                      <option key={cat} value={cat}>{cat === 'all' ? 'All Categories' : cat}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
               <div className="flex gap-2">
                 <Dialog open={isAdjustModalOpen} onOpenChange={setIsAdjustModalOpen}>
                   <DialogContent>
@@ -501,17 +616,188 @@ export const Pharmacy = () => {
                     </div>
                   </DialogContent>
                 </Dialog>
-                <Button size="sm" className="gap-2">
-                  <Plus className="w-4 h-4" />
-                  Add Medication
-                </Button>
+
+                <Dialog open={isHistoryModalOpen} onOpenChange={setIsHistoryModalOpen}>
+                  <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+                    <DialogHeader>
+                      <DialogTitle className="flex items-center gap-2">
+                        <History className="w-5 h-5 text-primary" />
+                        Stock History: {selectedItem?.name} ({selectedItem?.dosage})
+                      </DialogTitle>
+                    </DialogHeader>
+                    <div className="py-4">
+                      {historyLoading ? (
+                        <div className="flex flex-col items-center justify-center py-10">
+                          <Loader2 className="w-8 h-8 animate-spin text-primary mb-2" />
+                          <p className="text-sm text-muted-foreground">Loading history...</p>
+                        </div>
+                      ) : stockHistory.length === 0 ? (
+                        <div className="text-center py-10 border rounded-lg bg-muted/20">
+                          <Package className="w-10 h-10 text-muted-foreground mx-auto mb-2 opacity-20" />
+                          <p className="text-muted-foreground">No stock history found for this item.</p>
+                        </div>
+                      ) : (
+                        <div className="border rounded-lg overflow-hidden">
+                          <Table>
+                            <TableHeader className="bg-muted/50">
+                              <TableRow>
+                                <TableHead className="w-[150px]">Date</TableHead>
+                                <TableHead>Action</TableHead>
+                                <TableHead>Quantity</TableHead>
+                                <TableHead>Reason</TableHead>
+                                <TableHead>User</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {[...stockHistory].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).map((entry) => (
+                                <TableRow key={entry.id}>
+                                  <TableCell className="text-xs">
+                                    {new Date(entry.created_at).toLocaleString()}
+                                  </TableCell>
+                                  <TableCell>
+                                    <Badge variant={entry.type === 'ADD' ? 'outline' : 'destructive'} className={cn(
+                                      "text-[10px] px-1.5 h-5",
+                                      entry.type === 'ADD' ? "border-emerald-500 text-emerald-600 bg-emerald-50" : ""
+                                    )}>
+                                      {entry.type === 'ADD' ? (
+                                        <TrendingUp className="w-3 h-3 mr-1" />
+                                      ) : (
+                                        <TrendingDown className="w-3 h-3 mr-1" />
+                                      )}
+                                      {entry.type === 'ADD' ? 'Addition' : 'Removal'}
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell className="font-medium">
+                                    {entry.type === 'ADD' ? '+' : '-'}{entry.quantity} {selectedItem?.unit}
+                                  </TableCell>
+                                  <TableCell className="text-xs max-w-[150px] truncate" title={entry.reason}>
+                                    {entry.reason}
+                                  </TableCell>
+                                  <TableCell className="text-xs">
+                                    {entry.user_name}
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      )}
+                    </div>
+                  </DialogContent>
+                </Dialog>
+
+                {canManageMedications && (
+                  <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
+                    <DialogTrigger render={
+                      <Button size="sm" className="gap-2" onClick={() => setMedicationForm({
+                        name: '', dosage: '', category: '', stock: '', maxStock: '', reorderLevel: '', unit: '', expiry_date: '', price_per_unit: ''
+                      })}>
+                        <Plus className="w-4 h-4" />
+                        Add Item
+                      </Button>
+                    } />
+                    <DialogContent className="max-w-md">
+                      <DialogHeader>
+                        <DialogTitle>Add New Inventory Item</DialogTitle>
+                      </DialogHeader>
+                      <div className="grid grid-cols-2 gap-4 py-4">
+                        <div className="col-span-2 space-y-2">
+                          <Label htmlFor="name">Item Name*</Label>
+                          <Input id="name" value={medicationForm.name} onChange={(e) => setMedicationForm({...medicationForm, name: e.target.value})} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="dosage">Dosage/Size*</Label>
+                          <Input id="dosage" placeholder="e.g. 500mg or Size 14" value={medicationForm.dosage} onChange={(e) => setMedicationForm({...medicationForm, dosage: e.target.value})} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="category">Category</Label>
+                          <Input id="category" placeholder="e.g. Antibiotics, Sundries" value={medicationForm.category} onChange={(e) => setMedicationForm({...medicationForm, category: e.target.value})} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="stock">Initial Stock*</Label>
+                          <Input id="stock" type="number" value={medicationForm.stock} onChange={(e) => setMedicationForm({...medicationForm, stock: e.target.value})} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="maxStock">Max Stock</Label>
+                          <Input id="maxStock" type="number" value={medicationForm.maxStock} onChange={(e) => setMedicationForm({...medicationForm, maxStock: e.target.value})} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="reorderLevel">Reorder Level</Label>
+                          <Input id="reorderLevel" type="number" value={medicationForm.reorderLevel} onChange={(e) => setMedicationForm({...medicationForm, reorderLevel: e.target.value})} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="unit">Unit</Label>
+                          <Input id="unit" placeholder="e.g. Tablets" value={medicationForm.unit} onChange={(e) => setMedicationForm({...medicationForm, unit: e.target.value})} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="expiry">Expiry Date</Label>
+                          <Input id="expiry" type="date" value={medicationForm.expiry_date} onChange={(e) => setMedicationForm({...medicationForm, expiry_date: e.target.value})} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="price">Price per Unit (UGX)*</Label>
+                          <Input id="price" type="number" value={medicationForm.price_per_unit} onChange={(e) => setMedicationForm({...medicationForm, price_per_unit: e.target.value})} />
+                        </div>
+                      </div>
+                      <Button className="w-full" onClick={handleAddMedication} disabled={isSubmittingMedication}>
+                        {isSubmittingMedication ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                        Add Medication
+                      </Button>
+                    </DialogContent>
+                  </Dialog>
+                )}
+
+                <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
+                  <DialogContent className="max-w-md">
+                    <DialogHeader>
+                      <DialogTitle>Edit Medication - {selectedItem?.name}</DialogTitle>
+                    </DialogHeader>
+                    <div className="grid grid-cols-2 gap-4 py-4">
+                      <div className="col-span-2 space-y-2">
+                        <Label htmlFor="edit-name">Medication Name*</Label>
+                        <Input id="edit-name" value={medicationForm.name} onChange={(e) => setMedicationForm({...medicationForm, name: e.target.value})} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-dosage">Dosage*</Label>
+                        <Input id="edit-dosage" value={medicationForm.dosage} onChange={(e) => setMedicationForm({...medicationForm, dosage: e.target.value})} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-category">Category</Label>
+                        <Input id="edit-category" value={medicationForm.category} onChange={(e) => setMedicationForm({...medicationForm, category: e.target.value})} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-maxStock">Max Stock</Label>
+                        <Input id="edit-maxStock" type="number" value={medicationForm.maxStock} onChange={(e) => setMedicationForm({...medicationForm, maxStock: e.target.value})} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-reorderLevel">Reorder Level</Label>
+                        <Input id="edit-reorderLevel" type="number" value={medicationForm.reorderLevel} onChange={(e) => setMedicationForm({...medicationForm, reorderLevel: e.target.value})} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-unit">Unit</Label>
+                        <Input id="edit-unit" value={medicationForm.unit} onChange={(e) => setMedicationForm({...medicationForm, unit: e.target.value})} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-expiry">Expiry Date</Label>
+                        <Input id="edit-expiry" type="date" value={medicationForm.expiry_date} onChange={(e) => setMedicationForm({...medicationForm, expiry_date: e.target.value})} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-price">Price per Unit (UGX)*</Label>
+                        <Input id="edit-price" type="number" value={medicationForm.price_per_unit} onChange={(e) => setMedicationForm({...medicationForm, price_per_unit: e.target.value})} />
+                      </div>
+                    </div>
+                    <Button className="w-full" onClick={handleEditMedication} disabled={isSubmittingMedication}>
+                      {isSubmittingMedication ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                      Save Changes
+                    </Button>
+                  </DialogContent>
+                </Dialog>
               </div>
             </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Medication</TableHead>
+                    <TableHead>Item Name</TableHead>
                     <TableHead>Category</TableHead>
                     <TableHead>Stock Level</TableHead>
                     <TableHead>Price/Unit</TableHead>
@@ -524,12 +810,12 @@ export const Pharmacy = () => {
                 <TableBody>
                   {inventoryLoading ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-10">
+                      <TableCell colSpan={8} className="text-center py-10">
                         <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-primary" />
                         Loading inventory...
                       </TableCell>
                     </TableRow>
-                  ) : [...inventory].sort((a, b) => new Date(a.expiry_date).getTime() - new Date(b.expiry_date).getTime()).map((item) => {
+                  ) : [...filteredInventory].sort((a, b) => new Date(a.expiry_date).getTime() - new Date(b.expiry_date).getTime()).map((item) => {
                     const isLowStock = item.stock <= item.reorderLevel;
                     const expiryDate = new Date(item.expiry_date);
                     const today = new Date();
@@ -606,16 +892,54 @@ export const Pharmacy = () => {
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">{item.unit}</TableCell>
                         <TableCell className="text-right">
-                          <Button 
-                            variant="ghost" 
-                            size="sm"
-                            onClick={() => {
-                              setSelectedItem(item);
-                              setIsAdjustModalOpen(true);
-                            }}
-                          >
-                            Adjust Stock
-                          </Button>
+                          <div className="flex justify-end gap-2">
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
+                              className="gap-2"
+                              onClick={() => {
+                                setSelectedItem(item);
+                                setIsHistoryModalOpen(true);
+                                fetchStockHistory(item.id);
+                              }}
+                            >
+                              <History className="w-4 h-4" />
+                              History
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
+                              onClick={() => {
+                                setSelectedItem(item);
+                                setIsAdjustModalOpen(true);
+                              }}
+                            >
+                              Adjust Stock
+                            </Button>
+                            {canManageMedications && (
+                              <Button 
+                                variant="ghost" 
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedItem(item);
+                                  setMedicationForm({
+                                    name: item.name,
+                                    dosage: item.dosage,
+                                    category: item.category || '',
+                                    stock: String(item.stock),
+                                    maxStock: String(item.maxStock || ''),
+                                    reorderLevel: String(item.reorderLevel || ''),
+                                    unit: item.unit || '',
+                                    expiry_date: item.expiry_date ? item.expiry_date.split('T')[0] : '',
+                                    price_per_unit: String(item.price_per_unit || '')
+                                  });
+                                  setIsEditModalOpen(true);
+                                }}
+                              >
+                                Edit
+                              </Button>
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     );
@@ -802,13 +1126,13 @@ export const Pharmacy = () => {
 
                         <div className="h-[300px] w-full">
                           <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={reportData?.stockLevels?.slice(0, 10) || []}>
+                            <BarChart data={Array.isArray(reportData?.stockLevels) ? reportData.stockLevels.slice(0, 10) : []}>
                               <CartesianGrid strokeDasharray="3 3" vertical={false} />
                               <XAxis dataKey="name" fontSize={12} tickLine={false} axisLine={false} />
                               <YAxis fontSize={12} tickLine={false} axisLine={false} />
                               <Tooltip />
                               <Bar dataKey="stock" radius={[4, 4, 0, 0]}>
-                                {(reportData?.stockLevels?.slice(0, 10) || []).map((entry: any, index: number) => (
+                                {(Array.isArray(reportData?.stockLevels) ? reportData.stockLevels.slice(0, 10) : []).map((entry: any, index: number) => (
                                   <Cell key={`cell-${index}`} fill={entry.stock <= entry.reorderLevel ? '#e11d48' : '#10b981'} />
                                 ))}
                               </Bar>
@@ -927,7 +1251,7 @@ export const Pharmacy = () => {
                                 <FileText className="w-4 h-4" />
                                 <span className="text-xs font-medium uppercase tracking-wider">Total Prescriptions</span>
                               </div>
-                              <div className="text-2xl font-bold">{reportData?.prescriptions?.length || 0}</div>
+                              <div className="text-2xl font-bold">{Array.isArray(reportData?.prescriptions) ? reportData.prescriptions.length : 0}</div>
                             </CardContent>
                           </Card>
                           <Card className="bg-emerald-50 border-none shadow-none">
@@ -937,7 +1261,7 @@ export const Pharmacy = () => {
                                 <span className="text-xs font-medium uppercase tracking-wider">Total Units Dispensed</span>
                               </div>
                               <div className="text-2xl font-bold text-emerald-700">
-                                {reportData?.summary?.reduce((sum: number, item: any) => sum + item.totalDispensed, 0) || 0}
+                                {Array.isArray(reportData?.summary) ? reportData.summary.reduce((sum: number, item: any) => sum + item.totalDispensed, 0) : 0}
                               </div>
                             </CardContent>
                           </Card>
@@ -948,7 +1272,7 @@ export const Pharmacy = () => {
                                 <span className="text-xs font-medium uppercase tracking-wider">Total Revenue (UGX)</span>
                               </div>
                               <div className="text-2xl font-bold text-blue-700">
-                                {reportData?.summary?.reduce((sum: number, item: any) => sum + item.totalPrice, 0).toLocaleString() || 0}
+                                {Array.isArray(reportData?.summary) ? reportData.summary.reduce((sum: number, item: any) => sum + item.totalPrice, 0).toLocaleString() : 0}
                               </div>
                             </CardContent>
                           </Card>

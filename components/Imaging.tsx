@@ -125,8 +125,7 @@ export const Imaging = () => {
             <TableHeader>
               <TableRow>
                 <TableHead>Date</TableHead>
-                <TableHead>Patient ID</TableHead>
-                <TableHead>Patient Name</TableHead>
+                <TableHead>Patient</TableHead>
                 <TableHead>Investigations</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
@@ -142,8 +141,10 @@ export const Imaging = () => {
                   <TableCell className="text-sm">
                     {new Date(order.created_at).toLocaleDateString()}
                   </TableCell>
-                  <TableCell className="font-medium">{order.patient_id}</TableCell>
-                  <TableCell>{order.patient_name}</TableCell>
+                  <TableCell>
+                    <div className="font-medium">{order.patient_name}</div>
+                    <div className="text-xs text-muted-foreground">{order.patient_id}</div>
+                  </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
                       {order.ordered_imaging.map((img: any, idx: number) => (
@@ -218,7 +219,7 @@ export const Imaging = () => {
                         } />
                         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
                         <DialogHeader>
-                          <DialogTitle>Imaging Findings - {order.patient_name}</DialogTitle>
+                          <DialogTitle>Imaging Findings - {order.patient_name} ({order.patient_id})</DialogTitle>
                         </DialogHeader>
                         
                         <div className="space-y-6 py-4">

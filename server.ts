@@ -130,12 +130,14 @@ const mockDb = {
       patient_id: 'UGN-2026-0001',
       name: 'John Doe',
       amount: 50000,
+      paid_amount: 0,
       status: 'UNPAID',
       date: '2024-06-01',
       items: [
         { description: 'Consultation Fee', amount: 20000 },
         { description: 'Imaging: X-Ray Chest', amount: 30000 }
-      ]
+      ],
+      payments: []
     },
     {
       id: 2,
@@ -149,6 +151,9 @@ const mockDb = {
       items: [
         { description: 'Lab Test: Malaria RDT', amount: 15000 },
         { description: 'Medication: Amoxicillin', amount: 60000 }
+      ],
+      payments: [
+        { method: 'Cash', amount: 30000, reference_number: 'CASH-001', date: '2024-06-02T10:00:00Z' }
       ]
     }
   ],
@@ -164,8 +169,21 @@ const mockDb = {
     { id: 'amlodipine', name: 'Amlodipine', dosage: '5mg', stock: 1000, maxStock: 1500, reorderLevel: 400, unit: 'Tablets', category: 'Cardiovascular', expiry_date: '2027-03-05', price_per_unit: 300 },
     { id: 'metformin', name: 'Metformin', dosage: '500mg', stock: 1500, maxStock: 2000, reorderLevel: 600, unit: 'Tablets', category: 'Antidiabetics', expiry_date: '2026-12-20', price_per_unit: 150 },
     { id: 'cetirizine', name: 'Cetirizine', dosage: '10mg', stock: 500, maxStock: 1000, reorderLevel: 250, unit: 'Tablets', category: 'Antihistamines', expiry_date: '2026-05-01', price_per_unit: 300 },
+    // Sundries and Supplies
+    { id: 'catheter_14', name: 'Foley Catheter', dosage: 'Size 14', stock: 50, maxStock: 100, reorderLevel: 20, unit: 'Pieces', category: 'Sundries', expiry_date: '2028-12-31', price_per_unit: 5000 },
+    { id: 'catheter_16', name: 'Foley Catheter', dosage: 'Size 16', stock: 45, maxStock: 100, reorderLevel: 20, unit: 'Pieces', category: 'Sundries', expiry_date: '2028-12-31', price_per_unit: 5000 },
+    { id: 'gloves_latex', name: 'Surgical Gloves', dosage: 'Latex (Medium)', stock: 200, maxStock: 500, reorderLevel: 100, unit: 'Pairs', category: 'Supplies', expiry_date: '2029-01-01', price_per_unit: 2000 },
+    { id: 'gloves_nitrile', name: 'Examination Gloves', dosage: 'Nitrile (Large)', stock: 500, maxStock: 1000, reorderLevel: 200, unit: 'Pairs', category: 'Supplies', expiry_date: '2029-01-01', price_per_unit: 1000 },
+    { id: 'cannula_g20', name: 'IV Cannula', dosage: 'G20 (Pink)', stock: 150, maxStock: 300, reorderLevel: 50, unit: 'Pieces', category: 'Supplies', expiry_date: '2027-06-30', price_per_unit: 3500 },
+    { id: 'cannula_g22', name: 'IV Cannula', dosage: 'G22 (Blue)', stock: 120, maxStock: 300, reorderLevel: 50, unit: 'Pieces', category: 'Supplies', expiry_date: '2027-06-30', price_per_unit: 3500 },
+    { id: 'syringe_5ml', name: 'Disposable Syringe', dosage: '5ml', stock: 1000, maxStock: 2000, reorderLevel: 500, unit: 'Pieces', category: 'Supplies', expiry_date: '2030-01-01', price_per_unit: 500 },
+    { id: 'gauze_roll', name: 'Gauze Roll', dosage: '10cm x 3m', stock: 80, maxStock: 200, reorderLevel: 40, unit: 'Rolls', category: 'Sundries', expiry_date: '2030-01-01', price_per_unit: 2500 },
   ],
   pharmacy_prescriptions: [],
+  stock_history: [
+    { id: 1, inventory_id: 'paracetamol_1', type: 'ADD', quantity: 1200, reason: 'Initial stock', user_name: 'System Admin', created_at: new Date().toISOString() },
+    { id: 2, inventory_id: 'amoxicillin', type: 'ADD', quantity: 450, reason: 'Initial stock', user_name: 'System Admin', created_at: new Date().toISOString() },
+  ],
   audit_logs: [
     { id: 1, user_id: 1, user_name: 'System Admin', action: 'SYSTEM_STARTUP', details: 'EMR System initialized', created_at: new Date().toISOString() }
   ],
@@ -639,15 +657,91 @@ async function startServer() {
     res.json(mockDb.invoices);
   });
 
-  app.patch('/api/billing/invoices/:id/pay', authenticateToken, (req, res) => {
+  app.post('/api/billing/invoices', authenticateToken, (req, res) => {
+    const { patient_id, name, items, amount } = req.body;
+    const newInvoice = {
+      id: mockDb.invoices.length + 1,
+      encounter_id: null,
+      patient_id,
+      name,
+      amount: Number(amount),
+      paid_amount: 0,
+      payments: [],
+      status: 'UNPAID',
+      date: new Date().toISOString().split('T')[0],
+      items: items || []
+    };
+    mockDb.invoices.push(newInvoice as never);
+    logAction((req as any).user, 'INVOICE_CREATED', `Created new invoice for ${name} (ID: ${newInvoice.id})`);
+    res.status(201).json(newInvoice);
+  });
+
+  app.patch('/api/billing/invoices/:id', authenticateToken, (req, res) => {
     const id = Number(req.params.id);
-    const { method, reference_number } = req.body;
+    const { items, amount, name, patient_id } = req.body;
     const invoice = mockDb.invoices.find((inv: any) => inv.id === id);
     if (invoice) {
-      (invoice as any).status = 'PAID';
+      if (items) (invoice as any).items = items;
+      if (amount !== undefined) (invoice as any).amount = Number(amount);
+      if (name) (invoice as any).name = name;
+      if (patient_id) (invoice as any).patient_id = patient_id;
+      
+      // Recalculate status if amount changed
+      if ((invoice as any).paid_amount >= (invoice as any).amount) {
+        (invoice as any).status = 'PAID';
+      } else if ((invoice as any).paid_amount > 0) {
+        (invoice as any).status = 'PARTIALLY PAID';
+      } else {
+        (invoice as any).status = 'UNPAID';
+      }
+
+      logAction((req as any).user, 'INVOICE_UPDATED', `Updated invoice ID ${id}`);
+      res.json(invoice);
+    } else {
+      res.status(404).json({ message: 'Invoice not found' });
+    }
+  });
+
+  app.delete('/api/billing/invoices/:id', authenticateToken, (req, res) => {
+    const id = Number(req.params.id);
+    const invoice = mockDb.invoices.find((inv: any) => inv.id === id);
+    if (invoice) {
+      (invoice as any).status = 'CANCELLED';
+      logAction((req as any).user, 'INVOICE_CANCELLED', `Cancelled invoice ID ${id}`);
+      res.json({ message: 'Invoice cancelled' });
+    } else {
+      res.status(404).json({ message: 'Invoice not found' });
+    }
+  });
+
+  app.patch('/api/billing/invoices/:id/pay', authenticateToken, (req, res) => {
+    const id = Number(req.params.id);
+    const { method, reference_number, amount } = req.body;
+    const invoice = mockDb.invoices.find((inv: any) => inv.id === id);
+    if (invoice) {
+      const payAmount = amount ? Number(amount) : (invoice as any).amount - ((invoice as any).paid_amount || 0);
+      (invoice as any).paid_amount = ((invoice as any).paid_amount || 0) + payAmount;
+      
+      if (! (invoice as any).payments) {
+        (invoice as any).payments = [];
+      }
+
+      (invoice as any).payments.push({
+        method,
+        amount: payAmount,
+        reference_number: reference_number || null,
+        date: new Date().toISOString()
+      });
+
+      if ((invoice as any).paid_amount >= (invoice as any).amount) {
+        (invoice as any).status = 'PAID';
+      } else {
+        (invoice as any).status = 'PARTIALLY PAID';
+      }
+
       (invoice as any).payment_method = method;
       (invoice as any).reference_number = reference_number || null;
-      logAction((req as any).user, 'PAYMENT_RECORDED', `Processed payment for invoice ID ${id} using ${method}`);
+      logAction((req as any).user, 'PAYMENT_RECORDED', `Processed payment of ${payAmount} for invoice ID ${id} using ${method}`);
       res.json(invoice);
     } else {
       res.status(404).json({ message: 'Invoice not found' });
@@ -714,6 +808,17 @@ async function startServer() {
             batch.stock -= dispenseFromBatch;
             remainingToDispense -= dispenseFromBatch;
             
+            const historyEntry = {
+              id: mockDb.stock_history.length + 1,
+              inventory_id: batch.id,
+              type: 'REMOVE',
+              quantity: dispenseFromBatch,
+              reason: `Prescription Dispensed (ID: ${id})`,
+              user_name: (req as any).user.fullName || (req as any).user.username,
+              created_at: new Date().toISOString()
+            };
+            mockDb.stock_history.push(historyEntry as never);
+
             const batchPrice = (batch.price_per_unit || 0) * dispenseFromBatch;
             itemTotalPrice += batchPrice;
             
@@ -738,6 +843,8 @@ async function startServer() {
           patient_id: prescription.patient_id,
           name: patient ? `${patient.first_name} ${patient.last_name}` : 'Unknown Patient',
           amount: totalPrice,
+          paid_amount: 0,
+          payments: [],
           status: 'UNPAID',
           date: new Date().toISOString().split('T')[0],
           items: invoiceItems,
@@ -897,14 +1004,88 @@ async function startServer() {
     const index = mockDb.inventory.findIndex((item: any) => item.id === id);
     if (index !== -1) {
       const item = mockDb.inventory[index];
-      const oldStock = item.stock;
       const change = type === 'ADD' ? Number(adjustment) : -Number(adjustment);
       item.stock += change;
       
+      const historyEntry = {
+        id: mockDb.stock_history.length + 1,
+        inventory_id: id,
+        type,
+        quantity: Number(adjustment),
+        reason,
+        user_name: (req as any).user.fullName || (req as any).user.username,
+        created_at: new Date().toISOString()
+      };
+      mockDb.stock_history.push(historyEntry as never);
+
       logAction((req as any).user, 'STOCK_ADJUSTMENT', 
         `Stock adjusted for ${item.name} (${item.dosage}). Type: ${type}, Quantity: ${adjustment}, New Stock: ${item.stock} ${item.unit}. Reason: ${reason}`);
       
       res.json(item);
+    } else {
+      res.status(404).json({ message: 'Medication not found' });
+    }
+  });
+
+  app.get('/api/pharmacy/inventory/:id/history', authenticateToken, (req, res) => {
+    const { id } = req.params;
+    const history = mockDb.stock_history.filter((h: any) => h.inventory_id === id);
+    res.json(history);
+  });
+
+  app.post('/api/pharmacy/inventory', authenticateToken, (req, res) => {
+    const { name, dosage, stock, maxStock, reorderLevel, unit, category, expiry_date, price_per_unit } = req.body;
+    
+    const newMedication = {
+      id: name.toLowerCase().replace(/\s+/g, '_') + '_' + Date.now(),
+      name,
+      dosage,
+      stock: Number(stock),
+      maxStock: Number(maxStock),
+      reorderLevel: Number(reorderLevel),
+      unit,
+      category,
+      expiry_date,
+      price_per_unit: Number(price_per_unit)
+    };
+    
+    mockDb.inventory.push(newMedication as never);
+
+    const historyEntry = {
+      id: mockDb.stock_history.length + 1,
+      inventory_id: newMedication.id,
+      type: 'ADD',
+      quantity: Number(stock),
+      reason: 'Initial stock on creation',
+      user_name: (req as any).user.fullName || (req as any).user.username,
+      created_at: new Date().toISOString()
+    };
+    mockDb.stock_history.push(historyEntry as never);
+
+    logAction((req as any).user, 'MEDICATION_ADDED', `Added new medication: ${name} (${dosage})`);
+    res.status(201).json(newMedication);
+  });
+
+  app.patch('/api/pharmacy/inventory/:id', authenticateToken, (req, res) => {
+    const { id } = req.params;
+    const index = mockDb.inventory.findIndex((item: any) => item.id === id);
+    
+    if (index !== -1) {
+      const updatedMedication = {
+        ...mockDb.inventory[index],
+        ...req.body,
+        id // Ensure ID doesn't change
+      };
+      
+      // Ensure numeric fields are numbers
+      if (req.body.stock !== undefined) updatedMedication.stock = Number(req.body.stock);
+      if (req.body.maxStock !== undefined) updatedMedication.maxStock = Number(req.body.maxStock);
+      if (req.body.reorderLevel !== undefined) updatedMedication.reorderLevel = Number(req.body.reorderLevel);
+      if (req.body.price_per_unit !== undefined) updatedMedication.price_per_unit = Number(req.body.price_per_unit);
+
+      mockDb.inventory[index] = updatedMedication as never;
+      logAction((req as any).user, 'MEDICATION_UPDATED', `Updated medication: ${updatedMedication.name} (${updatedMedication.dosage})`);
+      res.json(updatedMedication);
     } else {
       res.status(404).json({ message: 'Medication not found' });
     }
