@@ -34,6 +34,7 @@ export const Pharmacy = () => {
   const [adjustmentAmount, setAdjustmentAmount] = useState('');
   const [adjustmentReason, setAdjustmentReason] = useState('');
   const [isAdjusting, setIsAdjusting] = useState(false);
+  const [isConfirmAdjustOpen, setIsConfirmAdjustOpen] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [stockHistory, setStockHistory] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -163,6 +164,7 @@ export const Pharmacy = () => {
       
       toast.success('Stock adjusted successfully');
       setIsAdjustModalOpen(false);
+      setIsConfirmAdjustOpen(false);
       setAdjustmentAmount('');
       setAdjustmentReason('');
       fetchInventory();
@@ -607,12 +609,63 @@ export const Pharmacy = () => {
                       </div>
                       <Button 
                         className="w-full" 
-                        onClick={handleAdjustStock}
+                        onClick={() => {
+                          if (!selectedItem || !adjustmentAmount || !adjustmentReason) {
+                            toast.error('Please fill in all fields');
+                            return;
+                          }
+                          setIsConfirmAdjustOpen(true);
+                        }}
                         disabled={isAdjusting}
                       >
                         {isAdjusting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-                        Confirm Adjustment
+                        Review Adjustment
                       </Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+
+                <Dialog open={isConfirmAdjustOpen} onOpenChange={setIsConfirmAdjustOpen}>
+                  <DialogContent className="max-w-sm">
+                    <DialogHeader>
+                      <DialogTitle className="flex items-center gap-2 text-amber-600">
+                        <AlertCircle className="w-5 h-5" />
+                        Confirm Stock Adjustment
+                      </DialogTitle>
+                    </DialogHeader>
+                    <div className="py-4 space-y-4">
+                      <p className="text-sm text-muted-foreground">
+                        Are you sure you want to {adjustmentType === 'ADD' ? 'add' : 'remove'} <strong>{adjustmentAmount} {selectedItem?.unit}</strong> of <strong>{selectedItem?.name}</strong>?
+                      </p>
+                      <div className="bg-muted/50 p-3 rounded-lg text-xs space-y-1">
+                        <div className="flex justify-between">
+                          <span>Current Stock:</span>
+                          <span className="font-medium">{selectedItem?.stock}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>New Stock:</span>
+                          <span className="font-bold">
+                            {adjustmentType === 'ADD' 
+                              ? Number(selectedItem?.stock) + Number(adjustmentAmount)
+                              : Number(selectedItem?.stock) - Number(adjustmentAmount)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between pt-1 border-t">
+                          <span>Reason:</span>
+                          <span className="italic">"{adjustmentReason}"</span>
+                        </div>
+                      </div>
+                      <div className="flex gap-3">
+                        <Button variant="outline" className="flex-1" onClick={() => setIsConfirmAdjustOpen(false)}>Cancel</Button>
+                        <Button 
+                          className={cn("flex-1", adjustmentType === 'REMOVE' ? "bg-rose-600 hover:bg-rose-700" : "")}
+                          onClick={handleAdjustStock}
+                          disabled={isAdjusting}
+                        >
+                          {isAdjusting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                          Confirm
+                        </Button>
+                      </div>
                     </div>
                   </DialogContent>
                 </Dialog>

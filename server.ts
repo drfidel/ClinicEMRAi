@@ -192,6 +192,13 @@ const mockDb = {
     { id: 'accommodation_general', name: 'General Ward (Per Day)', category: 'Accommodation', amount: 30000 },
     { id: 'accommodation_private', name: 'Private Room (Per Day)', category: 'Accommodation', amount: 100000 },
     { id: 'ambulance_local', name: 'Ambulance (Local)', category: 'Transport', amount: 50000 },
+    { id: 'lab_fee_general', name: 'Laboratory Fee (General)', category: 'Lab', amount: 15000 },
+    { id: 'imaging_fee_general', name: 'Imaging Fee (General)', category: 'Imaging', amount: 30000 },
+    { id: 'emergency_fee', name: 'Emergency Fee', category: 'Service', amount: 40000 },
+    { id: 'medical_report', name: 'Medical Report Fee', category: 'Admin', amount: 10000 },
+    { id: 'pharmacy_fee', name: 'Dispensing Fee', category: 'Pharmacy', amount: 5000 },
+    { id: 'dressing_fee', name: 'Dressing Fee', category: 'Nursing', amount: 15000 },
+    { id: 'injection_fee', name: 'Injection Fee', category: 'Nursing', amount: 5000 },
   ],
   audit_logs: [
     { id: 1, user_id: 1, user_name: 'System Admin', action: 'SYSTEM_STARTUP', details: 'EMR System initialized', created_at: new Date().toISOString() }

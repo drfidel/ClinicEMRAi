@@ -14,8 +14,11 @@ import { toast } from 'sonner';
 export const Billing = () => {
   const [invoices, setInvoices] = useState<any[]>([]);
   const [services, setServices] = useState<any[]>([]);
+  const [inventory, setInventory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [serviceSearchQuery, setServiceSearchQuery] = useState('');
+  const [inventorySearchQuery, setInventorySearchQuery] = useState('');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string | null>(null);
   const [referenceNumber, setReferenceNumber] = useState('');
   const [paymentAmount, setPaymentAmount] = useState('');
@@ -68,9 +71,21 @@ export const Billing = () => {
     }
   };
 
+  const fetchInventory = async () => {
+    try {
+      const res = await axios.get('/api/pharmacy/inventory', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setInventory(res.data);
+    } catch (err) {
+      console.error('Failed to fetch inventory', err);
+    }
+  };
+
   useEffect(() => {
     fetchInvoices();
     fetchServices();
+    fetchInventory();
   }, [token]);
 
   const handlePayment = async (id: number, method: string, ref?: string, amount?: number) => {
@@ -248,31 +263,94 @@ export const Billing = () => {
               </div>
 
               <div className="space-y-2">
-                <Label className="text-xs uppercase text-muted-foreground">Quick Add Services</Label>
-                <div className="flex flex-wrap gap-2">
-                  {services.map((service) => (
-                    <Button 
-                      key={service.id} 
-                      variant="outline" 
-                      size="sm" 
-                      className="text-[10px] h-7"
-                      onClick={() => {
-                        const lastItem = newInvoiceForm.items[newInvoiceForm.items.length - 1];
-                        if (!lastItem.description && !lastItem.amount) {
-                          const newItems = [...newInvoiceForm.items];
-                          newItems[newInvoiceForm.items.length - 1] = { description: service.name, amount: String(service.amount) };
-                          setNewInvoiceForm({...newInvoiceForm, items: newItems});
-                        } else {
-                          setNewInvoiceForm({
-                            ...newInvoiceForm, 
-                            items: [...newInvoiceForm.items, { description: service.name, amount: String(service.amount) }]
-                          });
-                        }
-                      }}
-                    >
-                      {service.name}
-                    </Button>
-                  ))}
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs uppercase text-muted-foreground">Quick Add Services</Label>
+                  <div className="relative w-40">
+                    <Search className="absolute left-2 top-2 h-3 w-3 text-muted-foreground" />
+                    <Input 
+                      placeholder="Search services..." 
+                      className="pl-7 h-7 text-[10px]" 
+                      value={serviceSearchQuery}
+                      onChange={(e) => setServiceSearchQuery(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2 max-h-[120px] overflow-y-auto p-1 border rounded-md">
+                  {services
+                    .filter(s => s.name.toLowerCase().includes(serviceSearchQuery.toLowerCase()))
+                    .map((service) => (
+                      <Button 
+                        key={service.id} 
+                        variant="outline" 
+                        size="sm" 
+                        className="text-[10px] h-7 px-2 hover:bg-primary hover:text-primary-foreground transition-colors"
+                        onClick={() => {
+                          const lastItem = newInvoiceForm.items[newInvoiceForm.items.length - 1];
+                          if (!lastItem.description && !lastItem.amount) {
+                            const newItems = [...newInvoiceForm.items];
+                            newItems[newInvoiceForm.items.length - 1] = { description: service.name, amount: String(service.amount) };
+                            setNewInvoiceForm({...newInvoiceForm, items: newItems});
+                          } else {
+                            setNewInvoiceForm({
+                              ...newInvoiceForm, 
+                              items: [...newInvoiceForm.items, { description: service.name, amount: String(service.amount) }]
+                            });
+                          }
+                        }}
+                      >
+                        {service.name}
+                      </Button>
+                    ))}
+                  {services.filter(s => s.name.toLowerCase().includes(serviceSearchQuery.toLowerCase())).length === 0 && (
+                    <p className="text-[10px] text-muted-foreground p-2">No services found</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs uppercase text-muted-foreground">Quick Add Medications</Label>
+                  <div className="relative w-40">
+                    <Search className="absolute left-2 top-2 h-3 w-3 text-muted-foreground" />
+                    <Input 
+                      placeholder="Search meds..." 
+                      className="pl-7 h-7 text-[10px]" 
+                      value={inventorySearchQuery}
+                      onChange={(e) => setInventorySearchQuery(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2 max-h-[120px] overflow-y-auto p-1 border rounded-md">
+                  {inventory
+                    .filter(i => i.name.toLowerCase().includes(inventorySearchQuery.toLowerCase()))
+                    .map((item) => (
+                      <Button 
+                        key={item.id} 
+                        variant="outline" 
+                        size="sm" 
+                        className="text-[10px] h-7 px-2 border-emerald-200 text-emerald-700 hover:bg-emerald-600 hover:text-white transition-colors"
+                        onClick={() => {
+                          const lastItem = newInvoiceForm.items[newInvoiceForm.items.length - 1];
+                          const description = `${item.name} (${item.dosage})`;
+                          const amount = String(item.price_per_unit);
+                          if (!lastItem.description && !lastItem.amount) {
+                            const newItems = [...newInvoiceForm.items];
+                            newItems[newInvoiceForm.items.length - 1] = { description, amount };
+                            setNewInvoiceForm({...newInvoiceForm, items: newItems});
+                          } else {
+                            setNewInvoiceForm({
+                              ...newInvoiceForm, 
+                              items: [...newInvoiceForm.items, { description, amount }]
+                            });
+                          }
+                        }}
+                      >
+                        {item.name}
+                      </Button>
+                    ))}
+                  {inventory.filter(i => i.name.toLowerCase().includes(inventorySearchQuery.toLowerCase())).length === 0 && (
+                    <p className="text-[10px] text-muted-foreground p-2">No medications found</p>
+                  )}
                 </div>
               </div>
 
