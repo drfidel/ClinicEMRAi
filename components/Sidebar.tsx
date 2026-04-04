@@ -1,5 +1,5 @@
 import React from 'react';
-import { LucideIcon, LayoutDashboard, Users, Calendar, Stethoscope, FlaskConical, Pill, Receipt, BarChart3, Settings, LogOut, Camera, ShieldAlert } from 'lucide-react';
+import { LucideIcon, LayoutDashboard, Users, Calendar, Stethoscope, FlaskConical, Pill, Receipt, BarChart3, Settings, LogOut, Camera, ShieldAlert, Wallet } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/src/lib/store';
 import { Button } from '@/components/ui/button';
@@ -43,6 +43,7 @@ export const Sidebar = ({ currentTab, setTab }: { currentTab: string, setTab: (t
     { id: 'imaging', label: 'Imaging', icon: Camera, roles: ['ADMIN', 'LAB_TECH', 'DOCTOR'] },
     { id: 'pharmacy', label: 'Pharmacy', icon: Pill, roles: ['ADMIN', 'PHARMACIST', 'DOCTOR'] },
     { id: 'billing', label: 'Billing', icon: Receipt, roles: ['ADMIN', 'RECEPTIONIST'] },
+    { id: 'finance', label: 'Finance', icon: Wallet, roles: ['ADMIN'] },
     { id: 'reports', label: 'Reports', icon: BarChart3, roles: ['ADMIN'] },
     { id: 'audit', label: 'Audit Trail', icon: ShieldAlert, roles: ['ADMIN'] },
   ];

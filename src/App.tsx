@@ -10,6 +10,7 @@ import { Imaging } from '@/components/Imaging';
 import { Pharmacy } from '@/components/Pharmacy';
 import { Billing } from '@/components/Billing';
 import { Reports } from '@/components/Reports';
+import { Finance } from '@/components/Finance';
 import { AuditLogs } from '@/components/AuditLogs';
 import { Login } from '@/components/Login';
 import { Toaster } from '@/components/ui/sonner';
@@ -47,6 +48,8 @@ export default function App() {
         return <Billing />;
       case 'reports':
         return <Reports />;
+      case 'finance':
+        return <Finance />;
       case 'audit':
         return <AuditLogs />;
       default:

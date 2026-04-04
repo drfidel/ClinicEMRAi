@@ -203,6 +203,20 @@ const mockDb = {
   audit_logs: [
     { id: 1, user_id: 1, user_name: 'System Admin', action: 'SYSTEM_STARTUP', details: 'EMR System initialized', created_at: new Date().toISOString() }
   ],
+  expenses: [
+    { id: 1, category: 'Staff Salaries', amount: 5000000, description: 'Staff salaries for June', date: '2024-06-28', payment_method: 'Bank Transfer' },
+    { id: 2, category: 'Utility Expenses', amount: 200000, description: 'Electricity bill', date: '2024-06-15', payment_method: 'Mobile Money' },
+    { id: 3, category: 'Medical Supplies', amount: 1500000, description: 'Medical supplies restock', date: '2024-06-10', payment_method: 'Cash' },
+  ],
+  accounts: [
+    { id: '1000', name: 'Cash on Hand', type: 'ASSET' },
+    { id: '1010', name: 'Bank Account', type: 'ASSET' },
+    { id: '4000', name: 'Medical Service Income', type: 'INCOME' },
+    { id: '4010', name: 'Pharmacy Income', type: 'INCOME' },
+    { id: '5000', name: 'Staff Salaries', type: 'EXPENSE' },
+    { id: '5010', name: 'Utility Expenses', type: 'EXPENSE' },
+    { id: '5020', name: 'Medical Supplies', type: 'EXPENSE' },
+  ],
 };
 
 const JWT_SECRET = process.env.JWT_SECRET || 'uganda-emr-secret-key';
@@ -1355,6 +1369,81 @@ async function startServer() {
         prescriptionsDispensed: prescriptionsDispensedToday
       }
     });
+  });
+
+  // --- Finance & Accounting Routes ---
+  app.get('/api/finance/expenses', authenticateToken, (req, res) => {
+    res.json(mockDb.expenses);
+  });
+
+  app.post('/api/finance/expenses', authenticateToken, (req, res) => {
+    const expense = {
+      ...req.body,
+      id: mockDb.expenses.length + 1,
+      created_at: new Date().toISOString()
+    };
+    mockDb.expenses.push(expense as never);
+    logAction((req as any).user, 'EXPENSE_RECORDED', `Recorded expense: ${expense.category} - ${expense.amount} UGX`);
+    res.status(201).json(expense);
+  });
+
+  app.get('/api/finance/cashbook', authenticateToken, (req, res) => {
+    // Cashbook is a combination of all payments (inflow) and expenses (outflow)
+    const inflows = mockDb.invoices.flatMap((inv: any) => 
+      (inv.payments || []).map((p: any) => ({
+        date: p.date,
+        description: `Payment for INV-${inv.id.toString().padStart(5, '0')} (${inv.name})`,
+        type: 'INFLOW',
+        amount: p.amount,
+        method: p.method,
+        reference: p.reference_number
+      }))
+    );
+
+    const outflows = mockDb.expenses.map((exp: any) => ({
+      date: exp.date,
+      description: exp.description,
+      type: 'OUTFLOW',
+      amount: exp.amount,
+      method: exp.payment_method,
+      reference: `EXP-${exp.id.toString().padStart(3, '0')}`
+    }));
+
+    const cashbook = [...inflows, ...outflows].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    res.json(cashbook);
+  });
+
+  app.get('/api/finance/pl-statement', authenticateToken, (req, res) => {
+    // Group income by category (from invoices)
+    const incomeByCategory: any = {};
+    mockDb.invoices.forEach((inv: any) => {
+      inv.items.forEach((item: any) => {
+        // Simple mapping: if description contains 'Medication' or 'Amoxicillin' etc, it's Pharmacy Income
+        const category = item.description.toLowerCase().includes('medication') ? 'Pharmacy Income' : 'Medical Service Income';
+        incomeByCategory[category] = (incomeByCategory[category] || 0) + item.amount;
+      });
+    });
+
+    // Group expenses by category
+    const expenseByCategory: any = {};
+    mockDb.expenses.forEach((exp: any) => {
+      expenseByCategory[exp.category] = (expenseByCategory[exp.category] || 0) + exp.amount;
+    });
+
+    const totalIncome: number = (Object.values(incomeByCategory) as number[]).reduce((a: number, b: number) => a + b, 0);
+    const totalExpenses: number = (Object.values(expenseByCategory) as number[]).reduce((a: number, b: number) => a + b, 0);
+
+    res.json({
+      income: incomeByCategory,
+      expenses: expenseByCategory,
+      totalIncome,
+      totalExpenses,
+      netProfit: totalIncome - totalExpenses
+    });
+  });
+
+  app.get('/api/finance/accounts', authenticateToken, (req, res) => {
+    res.json(mockDb.accounts);
   });
 
   // --- Audit Log Routes ---
