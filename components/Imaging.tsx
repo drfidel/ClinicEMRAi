@@ -7,11 +7,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Search, CheckCircle2, Clock, FileText, Camera, Eye, Activity, Loader2 } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Search, CheckCircle2, Clock, FileText, Camera, Eye, Activity, Loader2, BarChart3, Calendar, Download } from 'lucide-react';
 import axios from 'axios';
 import { useAuthStore } from '@/src/lib/store';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
+
+const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
 
 const STATUS_CONFIG: Record<string, any> = {
   'REQUESTED': { icon: Clock, color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-200', label: 'Requested' },
@@ -29,7 +33,16 @@ export const Imaging = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [isResultModalOpen, setIsResultModalOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState('orders');
   const { token } = useAuthStore();
+
+  // Reporting State
+  const [reportData, setReportData] = useState<any>(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [dateRange, setDateRange] = useState({
+    startDate: new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0],
+    endDate: new Date().toISOString().split('T')[0]
+  });
 
   const fetchOrders = async () => {
     try {
@@ -44,9 +57,29 @@ export const Imaging = () => {
     }
   };
 
+  const fetchReport = async () => {
+    setReportLoading(true);
+    try {
+      const res = await axios.get(`/api/imaging/reports/summary?startDate=${dateRange.startDate}&endDate=${dateRange.endDate}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setReportData(res.data);
+    } catch (err) {
+      toast.error('Failed to fetch imaging report');
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchOrders();
   }, [token]);
+
+  useEffect(() => {
+    if (activeTab === 'reports') {
+      fetchReport();
+    }
+  }, [activeTab, dateRange]);
 
   const handleSaveResult = async (e: any) => {
     e.preventDefault();
@@ -98,22 +131,37 @@ export const Imaging = () => {
           <p className="text-muted-foreground">Manage X-Ray, Ultrasound, CT, and MRI requests</p>
         </div>
         <div className="flex items-center gap-4">
-          <div className="relative w-64">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search patient or ID..."
-              className="pl-8"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
-          <Button onClick={fetchOrders} variant="outline" size="icon">
-            <Clock className="w-4 h-4" />
-          </Button>
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-auto">
+            <TabsList>
+              <TabsTrigger value="orders" className="gap-2">
+                <Camera className="w-4 h-4" /> Orders
+              </TabsTrigger>
+              <TabsTrigger value="reports" className="gap-2">
+                <BarChart3 className="w-4 h-4" /> Reports
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
         </div>
       </div>
 
-      <Card>
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsContent value="orders" className="space-y-6">
+          <div className="flex items-center gap-4">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search patient or ID..."
+                className="pl-8"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+            <Button onClick={fetchOrders} variant="outline" size="icon">
+              <Clock className="w-4 h-4" />
+            </Button>
+          </div>
+
+          <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Camera className="w-5 h-5 text-primary" />
@@ -317,7 +365,164 @@ export const Imaging = () => {
             </TableBody>
           </Table>
         </CardContent>
-      </Card>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="reports" className="space-y-6">
+          <div className="flex items-center justify-between bg-muted/30 p-4 rounded-lg border">
+            <div className="flex items-center gap-4">
+              <div className="space-y-1">
+                <Label className="text-[10px] uppercase text-muted-foreground">Start Date</Label>
+                <div className="relative">
+                  <Calendar className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input 
+                    type="date" 
+                    className="pl-8 h-9 w-40" 
+                    value={dateRange.startDate}
+                    onChange={(e) => setDateRange({...dateRange, startDate: e.target.value})}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] uppercase text-muted-foreground">End Date</Label>
+                <div className="relative">
+                  <Calendar className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input 
+                    type="date" 
+                    className="pl-8 h-9 w-40" 
+                    value={dateRange.endDate}
+                    onChange={(e) => setDateRange({...dateRange, endDate: e.target.value})}
+                  />
+                </div>
+              </div>
+              <Button className="mt-5" onClick={fetchReport} disabled={reportLoading}>
+                {reportLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Search className="w-4 h-4 mr-2" />}
+                Generate Report
+              </Button>
+            </div>
+            <Button variant="outline" className="mt-5 gap-2">
+              <Download className="w-4 h-4" /> Export PDF
+            </Button>
+          </div>
+
+          {reportLoading ? (
+            <div className="h-64 flex items-center justify-center">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            </div>
+          ) : reportData ? (
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">Total Orders</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{reportData.totalOrders}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">Total Requests</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{reportData.totalRequests}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">Reported Rate</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-purple-600">
+                    {reportData.totalOrders > 0 
+                      ? Math.round((reportData.statusDistribution.REPORTED / reportData.totalOrders) * 100) 
+                      : 0}%
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">Active Requests</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">
+                    {reportData.statusDistribution.REQUESTED + reportData.statusDistribution['IN PROGRESS']}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="md:col-span-2 lg:col-span-2">
+                <CardHeader>
+                  <CardTitle className="text-base">Modality Distribution</CardTitle>
+                </CardHeader>
+                <CardContent className="h-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={reportData.modalityFrequency}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="name" fontSize={10} />
+                      <YAxis fontSize={10} />
+                      <Tooltip />
+                      <Bar dataKey="count" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+
+              <Card className="md:col-span-2 lg:col-span-2">
+                <CardHeader>
+                  <CardTitle className="text-base">Body Part Frequency</CardTitle>
+                </CardHeader>
+                <CardContent className="h-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={reportData.bodyPartFrequency} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                      <XAxis type="number" fontSize={10} />
+                      <YAxis dataKey="name" type="category" fontSize={10} width={80} />
+                      <Tooltip />
+                      <Bar dataKey="count" fill="#8884d8" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+
+              <Card className="md:col-span-2 lg:col-span-4">
+                <CardHeader>
+                  <CardTitle className="text-base">Status Overview</CardTitle>
+                </CardHeader>
+                <CardContent className="h-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={[
+                          { name: 'Requested', value: reportData.statusDistribution.REQUESTED },
+                          { name: 'In Progress', value: reportData.statusDistribution['IN PROGRESS'] },
+                          { name: 'Completed', value: reportData.statusDistribution.COMPLETED },
+                          { name: 'Reported', value: reportData.statusDistribution.REPORTED }
+                        ]}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={80}
+                        paddingAngle={5}
+                        dataKey="value"
+                      >
+                        {COLORS.map((color, index) => (
+                          <Cell key={`cell-${index}`} fill={color} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                      <Legend verticalAlign="bottom" height={36}/>
+                    </PieChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            </div>
+          ) : (
+            <div className="h-64 flex items-center justify-center border-2 border-dashed rounded-lg">
+              <p className="text-muted-foreground">Select a date range and click "Generate Report"</p>
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 };

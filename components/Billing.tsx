@@ -6,13 +6,14 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Receipt, CreditCard, Smartphone, Banknote, Search, Plus, Trash2, Edit2, Loader2, X } from 'lucide-react';
+import { Receipt, CreditCard, Smartphone, Banknote, Search, Plus, Trash2, Edit2, Loader2, X, Printer, CheckCircle2 } from 'lucide-react';
 import axios from 'axios';
 import { useAuthStore } from '@/src/lib/store';
 import { toast } from 'sonner';
 
 export const Billing = () => {
   const [invoices, setInvoices] = useState<any[]>([]);
+  const [services, setServices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string | null>(null);
@@ -26,6 +27,10 @@ export const Billing = () => {
     name: '',
     items: [{ description: '', amount: '' }]
   });
+
+  // Receipt State
+  const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
+  const [selectedInvoiceForReceipt, setSelectedInvoiceForReceipt] = useState<any>(null);
 
   // Edit Invoice State
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -52,8 +57,20 @@ export const Billing = () => {
     }
   };
 
+  const fetchServices = async () => {
+    try {
+      const res = await axios.get('/api/billing/services', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setServices(res.data);
+    } catch (err) {
+      console.error('Failed to fetch services', err);
+    }
+  };
+
   useEffect(() => {
     fetchInvoices();
+    fetchServices();
   }, [token]);
 
   const handlePayment = async (id: number, method: string, ref?: string, amount?: number) => {
@@ -231,6 +248,35 @@ export const Billing = () => {
               </div>
 
               <div className="space-y-2">
+                <Label className="text-xs uppercase text-muted-foreground">Quick Add Services</Label>
+                <div className="flex flex-wrap gap-2">
+                  {services.map((service) => (
+                    <Button 
+                      key={service.id} 
+                      variant="outline" 
+                      size="sm" 
+                      className="text-[10px] h-7"
+                      onClick={() => {
+                        const lastItem = newInvoiceForm.items[newInvoiceForm.items.length - 1];
+                        if (!lastItem.description && !lastItem.amount) {
+                          const newItems = [...newInvoiceForm.items];
+                          newItems[newInvoiceForm.items.length - 1] = { description: service.name, amount: String(service.amount) };
+                          setNewInvoiceForm({...newInvoiceForm, items: newItems});
+                        } else {
+                          setNewInvoiceForm({
+                            ...newInvoiceForm, 
+                            items: [...newInvoiceForm.items, { description: service.name, amount: String(service.amount) }]
+                          });
+                        }
+                      }}
+                    >
+                      {service.name}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label className="text-xs uppercase text-muted-foreground">Invoice Items</Label>
                   <Button 
@@ -379,6 +425,17 @@ export const Billing = () => {
                   <TableCell>{inv.date}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        className="gap-2"
+                        onClick={() => {
+                          setSelectedInvoiceForReceipt(inv);
+                          setIsReceiptModalOpen(true);
+                        }}
+                      >
+                        <Printer className="w-4 h-4" /> Receipt
+                      </Button>
                       <Dialog>
                         <DialogTrigger render={<Button size="sm" variant="outline" className="gap-2" />}>
                           <Receipt className="w-4 h-4" /> View
@@ -714,6 +771,82 @@ export const Billing = () => {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isReceiptModalOpen} onOpenChange={setIsReceiptModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Receipt className="w-5 h-5" /> Official Receipt
+            </DialogTitle>
+          </DialogHeader>
+          {selectedInvoiceForReceipt && (
+            <div className="space-y-6 py-4" id="printable-receipt">
+              <div className="text-center space-y-1">
+                <h3 className="font-bold text-xl uppercase">Uganda EMR Hospital</h3>
+                <p className="text-xs text-muted-foreground">Kampala, Central Uganda</p>
+                <p className="text-xs text-muted-foreground">Tel: +256 700 000 000</p>
+                <div className="pt-2 border-b-2 border-dashed" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-y-2 text-sm">
+                <div className="text-muted-foreground">Receipt No:</div>
+                <div className="text-right font-mono">RCP-{selectedInvoiceForReceipt.id.toString().padStart(5, '0')}</div>
+                <div className="text-muted-foreground">Invoice No:</div>
+                <div className="text-right font-mono">INV-{selectedInvoiceForReceipt.id.toString().padStart(5, '0')}</div>
+                <div className="text-muted-foreground">Date:</div>
+                <div className="text-right">{selectedInvoiceForReceipt.date}</div>
+                <div className="text-muted-foreground">Patient:</div>
+                <div className="text-right font-medium">{selectedInvoiceForReceipt.name}</div>
+                <div className="text-muted-foreground">Patient ID:</div>
+                <div className="text-right">{selectedInvoiceForReceipt.patient_id}</div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex justify-between text-xs font-bold uppercase border-b pb-1">
+                  <span>Description</span>
+                  <span>Amount</span>
+                </div>
+                {selectedInvoiceForReceipt.items?.map((item: any, idx: number) => (
+                  <div key={idx} className="flex justify-between text-sm">
+                    <span>{item.description}</span>
+                    <span>{item.amount.toLocaleString()}</span>
+                  </div>
+                ))}
+                <div className="border-t-2 border-dashed pt-2 flex justify-between font-bold text-lg">
+                  <span>TOTAL</span>
+                  <span>{selectedInvoiceForReceipt.amount.toLocaleString()} UGX</span>
+                </div>
+              </div>
+
+              <div className="space-y-2 bg-muted/30 p-3 rounded-lg">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Amount Paid:</span>
+                  <span className="font-bold text-emerald-600">{(selectedInvoiceForReceipt.paid_amount || 0).toLocaleString()} UGX</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Balance Due:</span>
+                  <span className="font-bold text-rose-600">{(selectedInvoiceForReceipt.amount - (selectedInvoiceForReceipt.paid_amount || 0)).toLocaleString()} UGX</span>
+                </div>
+                {selectedInvoiceForReceipt.status === 'PAID' && (
+                  <div className="flex items-center justify-center gap-2 text-emerald-600 font-bold pt-2">
+                    <CheckCircle2 className="w-5 h-5" />
+                    FULLY PAID
+                  </div>
+                )}
+              </div>
+
+              <div className="text-center space-y-4 pt-4">
+                <p className="text-[10px] text-muted-foreground italic">
+                  Thank you for choosing Uganda EMR Hospital. This is a computer generated receipt.
+                </p>
+                <Button className="w-full gap-2 no-print" onClick={() => window.print()}>
+                  <Printer className="w-4 h-4" /> Print Receipt
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

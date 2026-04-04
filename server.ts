@@ -184,6 +184,15 @@ const mockDb = {
     { id: 1, inventory_id: 'paracetamol_1', type: 'ADD', quantity: 1200, reason: 'Initial stock', user_name: 'System Admin', created_at: new Date().toISOString() },
     { id: 2, inventory_id: 'amoxicillin', type: 'ADD', quantity: 450, reason: 'Initial stock', user_name: 'System Admin', created_at: new Date().toISOString() },
   ],
+  billable_services: [
+    { id: 'theater_fee', name: 'Theater Fee', category: 'Service', amount: 500000 },
+    { id: 'nursing_fee', name: 'Nursing Fee', category: 'Service', amount: 50000 },
+    { id: 'consultation_general', name: 'General Consultation', category: 'Consultation', amount: 20000 },
+    { id: 'consultation_specialist', name: 'Specialist Consultation', category: 'Consultation', amount: 50000 },
+    { id: 'accommodation_general', name: 'General Ward (Per Day)', category: 'Accommodation', amount: 30000 },
+    { id: 'accommodation_private', name: 'Private Room (Per Day)', category: 'Accommodation', amount: 100000 },
+    { id: 'ambulance_local', name: 'Ambulance (Local)', category: 'Transport', amount: 50000 },
+  ],
   audit_logs: [
     { id: 1, user_id: 1, user_name: 'System Admin', action: 'SYSTEM_STARTUP', details: 'EMR System initialized', created_at: new Date().toISOString() }
   ],
@@ -586,6 +595,53 @@ async function startServer() {
     }
   });
 
+  // --- Laboratory Reporting Routes ---
+  app.get('/api/lab/reports/summary', authenticateToken, (req, res) => {
+    const { startDate, endDate } = req.query;
+    let encounters = mockDb.encounters.filter((e: any) => e.ordered_labs && e.ordered_labs.length > 0);
+
+    if (startDate && endDate) {
+      const start = new Date(startDate as string);
+      const end = new Date(endDate as string);
+      end.setHours(23, 59, 59, 999);
+      encounters = encounters.filter((e: any) => {
+        const date = new Date(e.created_at);
+        return date >= start && date <= end;
+      });
+    }
+
+    const testFrequency: { [key: string]: number } = {};
+    let totalTests = 0;
+    let completedTests = 0;
+
+    encounters.forEach((e: any) => {
+      e.ordered_labs.forEach((testId: string) => {
+        testFrequency[testId] = (testFrequency[testId] || 0) + 1;
+        totalTests++;
+      });
+      if (e.lab_status === 'COMPLETED') {
+        completedTests++;
+      }
+    });
+
+    const frequencyData = Object.entries(testFrequency).map(([id, count]) => ({
+      id,
+      count
+    })).sort((a, b) => b.count - a.count);
+
+    res.json({
+      totalOrders: encounters.length,
+      totalTests,
+      completedOrders: completedTests,
+      testFrequency: frequencyData,
+      statusDistribution: {
+        PENDING: encounters.filter((e: any) => !e.lab_status || e.lab_status === 'PENDING').length,
+        PARTIAL: encounters.filter((e: any) => e.lab_status === 'PARTIAL').length,
+        COMPLETED: completedTests
+      }
+    });
+  });
+
   // --- Imaging Routes ---
   app.get('/api/imaging/orders', authenticateToken, (req, res) => {
     const orders = mockDb.encounters
@@ -652,9 +708,57 @@ async function startServer() {
     }
   });
 
+  // --- Imaging Reporting Routes ---
+  app.get('/api/imaging/reports/summary', authenticateToken, (req, res) => {
+    const { startDate, endDate } = req.query;
+    let encounters = mockDb.encounters.filter((e: any) => e.ordered_imaging && e.ordered_imaging.length > 0);
+
+    if (startDate && endDate) {
+      const start = new Date(startDate as string);
+      const end = new Date(endDate as string);
+      end.setHours(23, 59, 59, 999);
+      encounters = encounters.filter((e: any) => {
+        const date = new Date(e.created_at);
+        return date >= start && date <= end;
+      });
+    }
+
+    const modalityFrequency: { [key: string]: number } = {};
+    const bodyPartFrequency: { [key: string]: number } = {};
+    let totalRequests = 0;
+
+    encounters.forEach((e: any) => {
+      e.ordered_imaging.forEach((img: any) => {
+        modalityFrequency[img.category] = (modalityFrequency[img.category] || 0) + 1;
+        bodyPartFrequency[img.bodyPart] = (bodyPartFrequency[img.bodyPart] || 0) + 1;
+        totalRequests++;
+      });
+    });
+
+    const modalityData = Object.entries(modalityFrequency).map(([name, count]) => ({ name, count }));
+    const bodyPartData = Object.entries(bodyPartFrequency).map(([name, count]) => ({ name, count }));
+
+    res.json({
+      totalOrders: encounters.length,
+      totalRequests,
+      modalityFrequency: modalityData,
+      bodyPartFrequency: bodyPartData,
+      statusDistribution: {
+        REQUESTED: encounters.filter((e: any) => !e.imaging_status || e.imaging_status === 'REQUESTED').length,
+        'IN PROGRESS': encounters.filter((e: any) => e.imaging_status === 'IN PROGRESS').length,
+        COMPLETED: encounters.filter((e: any) => e.imaging_status === 'COMPLETED').length,
+        REPORTED: encounters.filter((e: any) => e.imaging_status === 'REPORTED').length
+      }
+    });
+  });
+
   // --- Billing Routes ---
   app.get('/api/billing/invoices', authenticateToken, (req, res) => {
     res.json(mockDb.invoices);
+  });
+
+  app.get('/api/billing/services', authenticateToken, (req, res) => {
+    res.json(mockDb.billable_services);
   });
 
   app.post('/api/billing/invoices', authenticateToken, (req, res) => {
