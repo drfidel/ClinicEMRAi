@@ -1202,6 +1202,109 @@ async function startServer() {
     }
   });
 
+  // --- General Reporting Routes ---
+  app.get('/api/reports/financial', authenticateToken, (req, res) => {
+    const invoices = mockDb.invoices;
+    const totalRevenue = invoices.reduce((sum: number, inv: any) => sum + inv.amount, 0);
+    const totalCollected = invoices.reduce((sum: number, inv: any) => sum + (inv.paid_amount || 0), 0);
+    const totalPending = totalRevenue - totalCollected;
+
+    // Collections by payment method
+    const collectionsByMethod: any = {};
+    invoices.forEach((inv: any) => {
+      if (inv.payments) {
+        inv.payments.forEach((p: any) => {
+          collectionsByMethod[p.method] = (collectionsByMethod[p.method] || 0) + p.amount;
+        });
+      }
+    });
+
+    // Daily revenue (last 30 days)
+    const dailyRevenue: any = {};
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    invoices.forEach((inv: any) => {
+      const date = inv.date;
+      if (new Date(date) >= thirtyDaysAgo) {
+        dailyRevenue[date] = (dailyRevenue[date] || 0) + inv.amount;
+      }
+    });
+
+    const dailyRevenueData = Object.keys(dailyRevenue).sort().map(date => ({
+      date,
+      amount: dailyRevenue[date]
+    }));
+
+    res.json({
+      summary: { totalRevenue, totalCollected, totalPending },
+      collectionsByMethod,
+      dailyRevenue: dailyRevenueData
+    });
+  });
+
+  app.get('/api/reports/patients', authenticateToken, (req, res) => {
+    const patients = mockDb.patients;
+    const totalPatients = patients.length;
+
+    const genderDistribution = {
+      MALE: patients.filter((p: any) => p.gender === 'MALE').length,
+      FEMALE: patients.filter((p: any) => p.gender === 'FEMALE').length,
+      OTHER: patients.filter((p: any) => p.gender === 'OTHER').length
+    };
+
+    const ageGroups = {
+      '0-12': patients.filter((p: any) => {
+        const age = new Date().getFullYear() - new Date(p.date_of_birth).getFullYear();
+        return age <= 12;
+      }).length,
+      '13-19': patients.filter((p: any) => {
+        const age = new Date().getFullYear() - new Date(p.date_of_birth).getFullYear();
+        return age > 12 && age <= 19;
+      }).length,
+      '20-45': patients.filter((p: any) => {
+        const age = new Date().getFullYear() - new Date(p.date_of_birth).getFullYear();
+        return age > 19 && age <= 45;
+      }).length,
+      '46-65': patients.filter((p: any) => {
+        const age = new Date().getFullYear() - new Date(p.date_of_birth).getFullYear();
+        return age > 45 && age <= 65;
+      }).length,
+      '65+': patients.filter((p: any) => {
+        const age = new Date().getFullYear() - new Date(p.date_of_birth).getFullYear();
+        return age > 65;
+      }).length
+    };
+
+    res.json({
+      totalPatients,
+      genderDistribution,
+      ageGroups
+    });
+  });
+
+  app.get('/api/reports/clinical', authenticateToken, (req, res) => {
+    const encounters = mockDb.encounters;
+    const totalEncounters = encounters.length;
+
+    const diagnosisCounts: any = {};
+    encounters.forEach((e: any) => {
+      if (e.diagnosis) {
+        diagnosisCounts[e.diagnosis] = (diagnosisCounts[e.diagnosis] || 0) + 1;
+      }
+    });
+
+    const topDiagnoses = Object.keys(diagnosisCounts)
+      .map(name => ({ name, count: diagnosisCounts[name] }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+
+    res.json({
+      totalEncounters,
+      topDiagnoses
+    });
+  });
+
   // --- Audit Log Routes ---
   app.get('/api/audit_logs', authenticateToken, (req, res) => {
     // Only admins can view audit logs
