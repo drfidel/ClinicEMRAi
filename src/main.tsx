@@ -5,14 +5,35 @@ import App from './App.tsx';
 import './index.css';
 
 // Polyfill findDOMNode for React 19 compatibility with older libraries like react-quill
-// @ts-ignore
-const rd = (ReactDOM.default || ReactDOM) as any;
-if (typeof rd.findDOMNode === 'undefined') {
-  rd.findDOMNode = (el: any) => el;
-}
-// Also ensure it's on the named export if it's not the same
-if (typeof (ReactDOM as any).findDOMNode === 'undefined') {
-  (ReactDOM as any).findDOMNode = (el: any) => el;
+// We use a dynamic approach to avoid esbuild's static analysis of import assignments
+try {
+  const rd = (ReactDOM as any);
+  const polyfill = (el: any) => el;
+  
+  // Polyfill the namespace
+  if (typeof rd.findDOMNode === 'undefined') {
+    Object.defineProperty(rd, 'findDOMNode', {
+      value: polyfill,
+      configurable: true,
+      writable: true
+    });
+  }
+  
+  // Polyfill the default export if it exists on the namespace
+  if (rd.default && typeof rd.default.findDOMNode === 'undefined') {
+    try {
+      Object.defineProperty(rd.default, 'findDOMNode', {
+        value: polyfill,
+        configurable: true,
+        writable: true
+      });
+    } catch (e) {
+      // Some environments might have a non-configurable default
+      rd.default.findDOMNode = polyfill;
+    }
+  }
+} catch (e) {
+  console.warn('Could not polyfill findDOMNode:', e);
 }
 
 createRoot(document.getElementById('root')!).render(

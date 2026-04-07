@@ -125,7 +125,7 @@ export const Laboratory = () => {
     }
   };
 
-  const filteredOrders = orders.filter(order => 
+  const filteredOrders = (Array.isArray(orders) ? orders : []).filter(order => 
     String(order.patient_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
     String(order.patient_id || '').toLowerCase().includes(searchQuery.toLowerCase())
   );

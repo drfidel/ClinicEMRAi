@@ -7,20 +7,23 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Calendar as CalendarIcon, Plus, Search, Clock, User, FileText, Loader2 } from 'lucide-react';
+import { Calendar as CalendarIcon, Plus, Search, Clock, User, FileText, Loader2, List, ChevronLeft, ChevronRight, RefreshCcw } from 'lucide-react';
 import axios from 'axios';
 import { useAuthStore } from '@/src/lib/store';
 import { toast } from 'sonner';
-import { format } from 'date-fns';
+import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 
-export const Appointments = () => {
+export const Appointments = ({ onViewChart }: { onViewChart?: (patientId: string) => void }) => {
   const [appointments, setAppointments] = useState<any[]>([]);
   const [patients, setPatients] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
+  const [currentMonth, setCurrentMonth] = useState(new Date());
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingAppointment, setEditingAppointment] = useState<any>(null);
+  const [isRecurring, setIsRecurring] = useState(false);
   const { token } = useAuthStore();
 
   const fetchData = async () => {
@@ -48,30 +51,31 @@ export const Appointments = () => {
     const formData = new FormData(e.target);
     const data = Object.fromEntries(formData);
     
+    const payload = {
+      ...data,
+      patient_id: parseInt(data.patient_id as string),
+      appointment_date: data.date,
+      appointment_time: data.time,
+      recurring: isRecurring,
+      frequency: data.frequency,
+      occurrences: parseInt(data.occurrences as string) || 1,
+    };
+    
     try {
       if (editingAppointment) {
-        await axios.patch(`/api/appointments/${editingAppointment.id}`, {
-          ...data,
-          patient_id: parseInt(data.patient_id as string),
-          appointment_date: data.date,
-          appointment_time: data.time,
-        }, {
+        await axios.patch(`/api/appointments/${editingAppointment.id}`, payload, {
           headers: { Authorization: `Bearer ${token}` }
         });
         toast.success('Appointment updated successfully');
       } else {
-        await axios.post('/api/appointments', {
-          ...data,
-          patient_id: parseInt(data.patient_id as string),
-          appointment_date: data.date,
-          appointment_time: data.time,
-        }, {
+        await axios.post('/api/appointments', payload, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        toast.success('Appointment scheduled successfully');
+        toast.success(isRecurring ? 'Recurring appointments scheduled successfully' : 'Appointment scheduled successfully');
       }
       setIsModalOpen(false);
       setEditingAppointment(null);
+      setIsRecurring(false);
       fetchData();
     } catch (err) {
       toast.error(editingAppointment ? 'Failed to update appointment' : 'Failed to schedule appointment');
@@ -83,7 +87,7 @@ export const Appointments = () => {
     setIsModalOpen(true);
   };
 
-  const filteredAppointments = appointments
+  const filteredAppointments = (Array.isArray(appointments) ? appointments : [])
     .filter(appt => {
       const patient = patients.find(p => p.id === appt.patient_id);
       const searchStr = `${patient?.fullName || ''} ${appt.reason || ''} ${appt.status || ''}`.toLowerCase();
@@ -98,6 +102,104 @@ export const Appointments = () => {
       const timeB = b.appointment_time || format(new Date(b.created_at), 'HH:mm');
       return timeA.localeCompare(timeB);
     });
+
+  const getCalendarDays = () => {
+    const start = startOfWeek(startOfMonth(currentMonth));
+    const end = endOfWeek(endOfMonth(currentMonth));
+    return eachDayOfInterval({ start, end });
+  };
+
+  const renderCalendar = () => {
+    const days = getCalendarDays();
+    const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold">{format(currentMonth, 'MMMM yyyy')}</h3>
+          <div className="flex gap-1">
+            <Button variant="outline" size="icon" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}>
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setCurrentMonth(new Date())}>Today</Button>
+            <Button variant="outline" size="icon" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}>
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+        <div className="grid grid-cols-7 gap-px bg-muted border rounded-lg overflow-hidden">
+          {weekDays.map(day => (
+            <div key={day} className="bg-background p-2 text-center text-xs font-medium text-muted-foreground">
+              {day}
+            </div>
+          ))}
+          {days.map((day, i) => {
+            const dayAppointments = filteredAppointments.filter(appt => {
+              const apptDate = appt.appointment_date || format(new Date(appt.created_at), 'yyyy-MM-dd');
+              try {
+                return isSameDay(parseISO(apptDate), day);
+              } catch (e) {
+                return false;
+              }
+            });
+
+            return (
+              <div 
+                key={i} 
+                className={cn(
+                  "bg-background min-h-[120px] p-2 transition-colors hover:bg-accent/50 border-r border-b last:border-r-0",
+                  !isSameMonth(day, currentMonth) && "text-muted-foreground bg-muted/10"
+                )}
+              >
+                <div className={cn(
+                  "text-xs font-medium mb-1 w-6 h-6 flex items-center justify-center rounded-full",
+                  isSameDay(day, new Date()) && "bg-primary text-primary-foreground"
+                )}>
+                  {format(day, 'd')}
+                </div>
+                <div className="space-y-1">
+                  {dayAppointments.slice(0, 4).map(appt => {
+                    const statusColors: Record<string, string> = {
+                      'WAITING': 'bg-amber-100 text-amber-700 border-amber-200',
+                      'TRIAGE': 'bg-orange-100 text-orange-700 border-orange-200',
+                      'CONSULTATION': 'bg-blue-100 text-blue-700 border-blue-200',
+                      'COMPLETED': 'bg-emerald-100 text-emerald-700 border-emerald-200',
+                      'CANCELLED': 'bg-rose-100 text-rose-700 border-rose-200',
+                      'NOSHOW': 'bg-slate-100 text-slate-700 border-slate-200'
+                    };
+                    const colorClass = statusColors[appt.status] || 'bg-primary/10 text-primary border-primary/20';
+                    
+                    return (
+                      <div 
+                        key={appt.id} 
+                        className={cn(
+                          "text-[9px] p-1 rounded truncate cursor-pointer hover:opacity-80 border",
+                          colorClass
+                        )}
+                        onClick={() => openEditModal(appt)}
+                        title={`${appt.appointment_time} - ${patients.find(p => p.id === appt.patient_id)?.fullName} (${appt.status})`}
+                      >
+                        <div className="flex items-center gap-1">
+                          <span className="font-bold">{appt.appointment_time}</span>
+                          {appt.recurring_group_id && <RefreshCcw className="w-2 h-2 text-primary" />}
+                        </div>
+                        <div className="truncate">{patients.find(p => p.id === appt.patient_id)?.fullName}</div>
+                      </div>
+                    );
+                  })}
+                  {dayAppointments.length > 4 && (
+                    <div className="text-[9px] text-muted-foreground text-center">
+                      + {dayAppointments.length - 4} more
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
 
   const getStatusBadge = (status: string) => {
     const statusMap: Record<string, { label: string, className: string }> = {
@@ -149,12 +251,37 @@ export const Appointments = () => {
           <h2 className="text-3xl font-bold tracking-tight">Appointments</h2>
           <p className="text-muted-foreground">Schedule and manage patient visits</p>
         </div>
-        <Dialog open={isModalOpen} onOpenChange={(open) => {
+        <div className="flex items-center gap-3">
+          <div className="flex items-center border rounded-md p-1 bg-muted/30">
+            <Button 
+              variant={viewMode === 'list' ? 'secondary' : 'ghost'} 
+              size="sm" 
+              className="h-8 gap-1"
+              onClick={() => setViewMode('list')}
+            >
+              <List className="w-4 h-4" /> List
+            </Button>
+            <Button 
+              variant={viewMode === 'calendar' ? 'secondary' : 'ghost'} 
+              size="sm" 
+              className="h-8 gap-1"
+              onClick={() => setViewMode('calendar')}
+            >
+              <CalendarIcon className="w-4 h-4" /> Calendar
+            </Button>
+          </div>
+          <Dialog open={isModalOpen} onOpenChange={(open) => {
           setIsModalOpen(open);
-          if (!open) setEditingAppointment(null);
+          if (!open) {
+            setEditingAppointment(null);
+            setIsRecurring(false);
+          }
         }}>
           <DialogTrigger render={
-            <Button className="gap-2" onClick={() => setEditingAppointment(null)}>
+            <Button className="gap-2" onClick={() => {
+              setEditingAppointment(null);
+              setIsRecurring(false);
+            }}>
               <Plus className="w-4 h-4" /> Schedule Appointment
             </Button>
           } />
@@ -214,6 +341,49 @@ export const Appointments = () => {
                   defaultValue={editingAppointment?.notes || ""}
                 />
               </div>
+
+              {!editingAppointment && (
+                <div className="space-y-4 pt-2 border-t">
+                  <div className="flex items-center space-x-2">
+                    <input 
+                      type="checkbox" 
+                      id="recurring" 
+                      checked={isRecurring}
+                      onChange={(e) => setIsRecurring(e.target.checked)}
+                      className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                    />
+                    <Label htmlFor="recurring" className="cursor-pointer">Recurring Appointment</Label>
+                  </div>
+                  
+                  {isRecurring && (
+                    <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-1">
+                      <div className="space-y-2">
+                        <Label>Frequency</Label>
+                        <Select name="frequency" defaultValue="WEEKLY">
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select frequency" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="WEEKLY">Weekly</SelectItem>
+                            <SelectItem value="MONTHLY">Monthly</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Occurrences</Label>
+                        <Input 
+                          name="occurrences" 
+                          type="number" 
+                          min="2" 
+                          max="12" 
+                          defaultValue="4" 
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="flex justify-end gap-2 pt-4">
                 <Button type="button" variant="outline" onClick={() => {
                   setIsModalOpen(false);
@@ -225,8 +395,9 @@ export const Appointments = () => {
           </DialogContent>
         </Dialog>
       </div>
+    </div>
 
-      <Card>
+    <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
           <CardTitle className="text-xl font-semibold">Appointment Queue</CardTitle>
           <div className="relative w-full max-w-sm">
@@ -245,6 +416,8 @@ export const Appointments = () => {
             <div className="flex items-center justify-center py-20">
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
             </div>
+          ) : viewMode === 'calendar' ? (
+            renderCalendar()
           ) : (
             <Table>
               <TableHeader>
@@ -279,6 +452,11 @@ export const Appointments = () => {
                             <div className="flex items-center gap-1 text-sm">
                               <CalendarIcon className="w-3 h-3 text-muted-foreground" />
                               {appt.appointment_date || format(new Date(appt.created_at), 'yyyy-MM-dd')}
+                              {appt.recurring_group_id && (
+                                <Badge variant="outline" className="text-[9px] h-4 px-1 gap-1 border-primary/20 text-primary bg-primary/5">
+                                  <RefreshCcw className="w-2 h-2" /> Recurring
+                                </Badge>
+                              )}
                             </div>
                             <div className="flex items-center gap-1 text-xs text-muted-foreground">
                               <Clock className="w-3 h-3" />
@@ -291,7 +469,17 @@ export const Appointments = () => {
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
                             <Button variant="ghost" size="sm" onClick={() => openEditModal(appt)}>Edit</Button>
-                            <Button variant="ghost" size="sm">View</Button>
+                            {onViewChart && patient && (
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="text-primary hover:text-primary hover:bg-primary/5 gap-1"
+                                onClick={() => onViewChart(patient.patient_id)}
+                              >
+                                <FileText className="w-3 h-3" />
+                                Chart
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>

@@ -17,6 +17,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 export const Pharmacy = () => {
   const [prescriptions, setPrescriptions] = useState<any[]>([]);
   const [inventory, setInventory] = useState<any[]>([]);
+  const [patients, setPatients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [inventoryLoading, setInventoryLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -54,6 +55,21 @@ export const Pharmacy = () => {
     price_per_unit: ''
   });
   const [isSubmittingMedication, setIsSubmittingMedication] = useState(false);
+
+  // New Prescription State
+  const [isNewPrescriptionModalOpen, setIsNewPrescriptionModalOpen] = useState(false);
+  const [newPrescriptionPatientId, setNewPrescriptionPatientId] = useState('');
+  const [newPrescriptionItems, setNewPrescriptionItems] = useState<any[]>([]);
+  const [newPrescriptionItemForm, setNewPrescriptionItemForm] = useState({
+    medication_name: '',
+    dosage: '',
+    dose: 1,
+    frequency: 3,
+    duration: 5,
+    quantity: 15,
+    instructions: ''
+  });
+  const [isSubmittingPrescription, setIsSubmittingPrescription] = useState(false);
 
   // Reporting State
   const [reportType, setReportType] = useState<'inventory' | 'expiring' | 'dispensed'>('inventory');
@@ -98,6 +114,17 @@ export const Pharmacy = () => {
     }
   };
 
+  const fetchPatients = async () => {
+    try {
+      const res = await axios.get('/api/patients', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setPatients(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      console.error('Failed to fetch patients', err);
+    }
+  };
+
   const fetchStockHistory = async (itemId: string) => {
     setHistoryLoading(true);
     try {
@@ -138,6 +165,7 @@ export const Pharmacy = () => {
   useEffect(() => {
     fetchPrescriptions();
     fetchInventory();
+    fetchPatients();
   }, [token]);
 
   useEffect(() => {
@@ -220,6 +248,70 @@ export const Pharmacy = () => {
     }
   };
 
+  const handleAddNewPrescriptionItem = () => {
+    if (!newPrescriptionItemForm.medication_name || !newPrescriptionItemForm.dosage) {
+      toast.error('Please fill in medication name and strength');
+      return;
+    }
+
+    // Validate against inventory stock
+    const inventoryItems = inventory.filter(item => item.name.toLowerCase() === newPrescriptionItemForm.medication_name.toLowerCase());
+    if (inventoryItems.length > 0) {
+      const totalStock = inventoryItems.reduce((sum, item) => sum + item.stock, 0);
+      if (newPrescriptionItemForm.quantity > totalStock) {
+        toast.error(`Cannot prescribe ${newPrescriptionItemForm.quantity}. Only ${totalStock} ${inventoryItems[0].unit || 'units'} available in pharmacy.`);
+        return;
+      }
+    } else {
+      toast.warning(`"${newPrescriptionItemForm.medication_name}" is not in pharmacy inventory. Patient may need to buy it externally.`);
+    }
+
+    setNewPrescriptionItems([...newPrescriptionItems, { ...newPrescriptionItemForm }]);
+    setNewPrescriptionItemForm({
+      medication_name: '',
+      dosage: '',
+      dose: 1,
+      frequency: 3,
+      duration: 5,
+      quantity: 15,
+      instructions: ''
+    });
+  };
+
+  const handleRemoveNewPrescriptionItem = (index: number) => {
+    setNewPrescriptionItems(newPrescriptionItems.filter((_, i) => i !== index));
+  };
+
+  const handleSubmitNewPrescription = async () => {
+    if (!newPrescriptionPatientId) {
+      toast.error('Please select a patient');
+      return;
+    }
+    if (newPrescriptionItems.length === 0) {
+      toast.error('Please add at least one medication');
+      return;
+    }
+
+    setIsSubmittingPrescription(true);
+    try {
+      await axios.post('/api/pharmacy/prescriptions', {
+        patient_id: newPrescriptionPatientId,
+        items: newPrescriptionItems
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      toast.success('Prescription created successfully');
+      setIsNewPrescriptionModalOpen(false);
+      setNewPrescriptionPatientId('');
+      setNewPrescriptionItems([]);
+      fetchPrescriptions();
+    } catch (err) {
+      toast.error('Failed to create prescription');
+    } finally {
+      setIsSubmittingPrescription(false);
+    }
+  };
+
   const updateStatus = async (id: number, status: string) => {
     setUpdatingStatusId(id);
     try {
@@ -228,6 +320,9 @@ export const Pharmacy = () => {
       });
       toast.success(`Prescription marked as ${status.toLowerCase()}`);
       fetchPrescriptions();
+      if (status === 'DISPENSED') {
+        fetchInventory();
+      }
       if (selectedPrescription?.id === id) {
         setIsDetailModalOpen(false);
       }
@@ -298,6 +393,169 @@ export const Pharmacy = () => {
           <Button onClick={fetchPrescriptions} variant="outline" size="icon">
             <Clock className="w-4 h-4" />
           </Button>
+          <Button className="gap-2" onClick={() => setIsNewPrescriptionModalOpen(true)}>
+            <Plus className="w-4 h-4" />
+            New Prescription
+          </Button>
+          <Dialog open={isNewPrescriptionModalOpen} onOpenChange={setIsNewPrescriptionModalOpen}>
+            <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Create New Prescription</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-6 py-4">
+                <div className="space-y-2">
+                  <Label htmlFor="patientSelect">Select Patient</Label>
+                  <select
+                    id="patientSelect"
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    value={newPrescriptionPatientId}
+                    onChange={(e) => setNewPrescriptionPatientId(e.target.value)}
+                  >
+                    <option value="">-- Select a Patient --</option>
+                    {patients.map((p: any) => (
+                      <option key={p.patient_id} value={p.patient_id}>
+                        {p.first_name} {p.last_name} ({p.patient_id})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="border rounded-lg p-4 space-y-4 bg-muted/20">
+                  <h3 className="font-medium text-sm">Add Medication</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Medication Name</Label>
+                      <Input 
+                        value={newPrescriptionItemForm.medication_name} 
+                        onChange={(e) => setNewPrescriptionItemForm({...newPrescriptionItemForm, medication_name: e.target.value})}
+                        placeholder="e.g. Amoxicillin"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Strength/Dosage</Label>
+                      <Input 
+                        value={newPrescriptionItemForm.dosage} 
+                        onChange={(e) => setNewPrescriptionItemForm({...newPrescriptionItemForm, dosage: e.target.value})}
+                        placeholder="e.g. 500mg"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label>Dose (Units)</Label>
+                      <Input 
+                        type="number" 
+                        value={newPrescriptionItemForm.dose} 
+                        onChange={(e) => {
+                          const dose = Number(e.target.value);
+                          setNewPrescriptionItemForm(prev => ({
+                            ...prev, 
+                            dose,
+                            quantity: dose * prev.frequency * prev.duration
+                          }));
+                        }}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Frequency (times/day)</Label>
+                      <Input 
+                        type="number" 
+                        value={newPrescriptionItemForm.frequency} 
+                        onChange={(e) => {
+                          const frequency = Number(e.target.value);
+                          setNewPrescriptionItemForm(prev => ({
+                            ...prev, 
+                            frequency,
+                            quantity: prev.dose * frequency * prev.duration
+                          }));
+                        }}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Duration (days)</Label>
+                      <Input 
+                        type="number" 
+                        value={newPrescriptionItemForm.duration} 
+                        onChange={(e) => {
+                          const duration = Number(e.target.value);
+                          setNewPrescriptionItemForm(prev => ({
+                            ...prev, 
+                            duration,
+                            quantity: prev.dose * prev.frequency * duration
+                          }));
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Total Quantity</Label>
+                      <Input 
+                        type="number" 
+                        value={newPrescriptionItemForm.quantity} 
+                        onChange={(e) => setNewPrescriptionItemForm({...newPrescriptionItemForm, quantity: Number(e.target.value)})}
+                        className="font-bold text-primary"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Instructions</Label>
+                      <Input 
+                        value={newPrescriptionItemForm.instructions} 
+                        onChange={(e) => setNewPrescriptionItemForm({...newPrescriptionItemForm, instructions: e.target.value})}
+                        placeholder="e.g. After meals"
+                      />
+                    </div>
+                  </div>
+                  <Button type="button" variant="secondary" onClick={handleAddNewPrescriptionItem} className="w-full gap-2">
+                    <Plus className="w-4 h-4" /> Add to Prescription
+                  </Button>
+                </div>
+
+                {newPrescriptionItems.length > 0 && (
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader className="bg-muted/50">
+                        <TableRow>
+                          <TableHead>Medication</TableHead>
+                          <TableHead>Instructions</TableHead>
+                          <TableHead className="text-center">Qty</TableHead>
+                          <TableHead className="text-right">Action</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {newPrescriptionItems.map((item, idx) => (
+                          <TableRow key={idx}>
+                            <TableCell>
+                              <div className="font-medium">{item.medication_name}</div>
+                              <div className="text-xs text-muted-foreground">{item.dosage}</div>
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              {item.dose} units, {item.frequency}x daily for {item.duration} days
+                              {item.instructions && <div className="text-muted-foreground mt-1">{item.instructions}</div>}
+                            </TableCell>
+                            <TableCell className="text-center font-bold">{item.quantity}</TableCell>
+                            <TableCell className="text-right">
+                              <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10" onClick={() => handleRemoveNewPrescriptionItem(idx)}>
+                                Remove
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2 pt-4 border-t">
+                  <Button variant="outline" onClick={() => setIsNewPrescriptionModalOpen(false)}>Cancel</Button>
+                  <Button onClick={handleSubmitNewPrescription} disabled={isSubmittingPrescription || newPrescriptionItems.length === 0 || !newPrescriptionPatientId}>
+                    {isSubmittingPrescription ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                    Create Prescription
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 
@@ -372,7 +630,8 @@ export const Pharmacy = () => {
                       <TableCell className="text-sm font-medium">
                         {p.items.reduce((sum: number, item: any) => {
                           const invItem = inventory.find(i => i.name === item.medication_name);
-                          return sum + (invItem?.price_per_unit || 0);
+                          const qty = Number(item.quantity || 1);
+                          return sum + ((invItem?.price_per_unit || 0) * qty);
                         }, 0).toLocaleString()} UGX
                       </TableCell>
                       <TableCell>{getStatusBadge(p.status)}</TableCell>
@@ -424,7 +683,7 @@ export const Pharmacy = () => {
                                           
                                           const qty = Number(item.quantity || 1);
                                           const unitPrice = invItem?.price_per_unit || 0;
-                                          const totalPrice = unitPrice * qty;
+                                          const totalPrice = item.dispensed_price !== undefined ? item.dispensed_price : (unitPrice * qty);
 
                                           return (
                                             <TableRow key={idx}>
@@ -466,7 +725,8 @@ export const Pharmacy = () => {
                                             {p.items.reduce((sum: number, item: any) => {
                                               const invItem = inventory.find(i => i.name === item.medication_name);
                                               const qty = Number(item.quantity || 1);
-                                              return sum + ((invItem?.price_per_unit || 0) * qty);
+                                              const itemPrice = item.dispensed_price !== undefined ? item.dispensed_price : ((invItem?.price_per_unit || 0) * qty);
+                                              return sum + itemPrice;
                                             }, 0).toLocaleString()} UGX
                                           </TableCell>
                                         </TableRow>
@@ -740,16 +1000,18 @@ export const Pharmacy = () => {
                 </Dialog>
 
                 {canManageMedications && (
-                  <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
-                    <DialogTrigger render={
-                      <Button size="sm" className="gap-2" onClick={() => setMedicationForm({
+                  <>
+                    <Button size="sm" className="gap-2" onClick={() => {
+                      setMedicationForm({
                         name: '', dosage: '', category: '', stock: '', maxStock: '', reorderLevel: '', unit: '', expiry_date: '', price_per_unit: ''
-                      })}>
-                        <Plus className="w-4 h-4" />
-                        Add Item
-                      </Button>
-                    } />
-                    <DialogContent className="max-w-md">
+                      });
+                      setIsAddModalOpen(true);
+                    }}>
+                      <Plus className="w-4 h-4" />
+                      Add Item
+                    </Button>
+                    <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
+                      <DialogContent className="max-w-md">
                       <DialogHeader>
                         <DialogTitle>Add New Inventory Item</DialogTitle>
                       </DialogHeader>
@@ -797,6 +1059,7 @@ export const Pharmacy = () => {
                       </Button>
                     </DialogContent>
                   </Dialog>
+                  </>
                 )}
 
                 <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>

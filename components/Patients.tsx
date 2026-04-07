@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { UserPlus, Search, RefreshCcw, History, Activity, Thermometer, Heart, Weight, Ruler, Wind, Stethoscope, Trash2, FileText, UserCircle, Save, Edit2, Phone, Mail, MapPin, Calendar } from 'lucide-react';
+import { UserPlus, Search, RefreshCcw, History, Activity, Thermometer, Heart, Weight, Ruler, Wind, Stethoscope, Trash2, FileText, UserCircle, Save, Edit2, Phone, Mail, MapPin, Calendar, XCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import axios from 'axios';
@@ -162,6 +162,7 @@ const EncounterHistory = ({ patientId, token }: { patientId: string, token: stri
 const PatientChart = ({ patient, token }: { patient: any, token: string | null }) => {
   const [encounters, setEncounters] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showDetailed, setShowDetailed] = useState(false);
 
   useEffect(() => {
     const fetchHistory = async () => {
@@ -232,6 +233,62 @@ const PatientChart = ({ patient, token }: { patient: any, token: string | null }
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground uppercase">Insurance</Label>
                 <p className="font-medium">{patient.insurance_provider || 'N/A'} ({patient.insurance_number || 'N/A'})</p>
+              </div>
+
+              <div className="col-span-2 pt-4 border-t mt-2">
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="w-full flex items-center justify-between h-8 px-2 hover:bg-muted/50"
+                  onClick={() => setShowDetailed(!showDetailed)}
+                >
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-primary">Detailed Demographics</span>
+                  {showDetailed ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </Button>
+                
+                {showDetailed && (
+                  <div className="grid grid-cols-2 gap-y-4 gap-x-8 pt-4 animate-in fade-in slide-in-from-top-1 duration-200">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground uppercase">Date of Birth</Label>
+                      <p className="font-medium flex items-center gap-2">
+                        <Calendar className="w-3 h-3 text-muted-foreground" /> 
+                        {patient.date_of_birth}
+                      </p>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground uppercase">Gender</Label>
+                      <p className="font-medium">{patient.gender}</p>
+                    </div>
+                    <div className="col-span-2 space-y-1">
+                      <Label className="text-xs text-muted-foreground uppercase">Residential Address</Label>
+                      <p className="font-medium flex items-center gap-2">
+                        <MapPin className="w-3 h-3 text-muted-foreground" /> 
+                        {patient.address || 'No address provided'}
+                      </p>
+                    </div>
+                    <div className="col-span-2 pt-2">
+                      <Separator className="mb-3" />
+                      <Label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2 block">Emergency Contact Information</Label>
+                      <div className="grid grid-cols-2 gap-4 bg-muted/30 p-3 rounded-lg border border-dashed">
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-muted-foreground uppercase">Contact Name</Label>
+                          <p className="text-sm font-semibold">{patient.next_of_kin_name || 'N/A'}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-muted-foreground uppercase">Relationship</Label>
+                          <p className="text-sm font-medium">{patient.next_of_kin_relationship || 'N/A'}</p>
+                        </div>
+                        <div className="col-span-2 space-y-1">
+                          <Label className="text-[10px] text-muted-foreground uppercase">Phone Number</Label>
+                          <p className="text-sm font-medium flex items-center gap-2">
+                            <Phone className="w-3 h-3 text-muted-foreground" /> 
+                            {patient.next_of_kin_phone || 'N/A'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -557,11 +614,15 @@ const PatientProfile = ({ patient, token, onUpdate }: { patient: any, token: str
   );
 };
 
-export const Patients = () => {
+export const Patients = ({ initialPatientId, onClearInitialPatient }: { initialPatientId?: string | null, onClearInitialPatient?: () => void }) => {
   const [patients, setPatients] = useState<any[]>([]);
   const [search, setSearch] = useState('');
+  const [dobStart, setDobStart] = useState('');
+  const [dobEnd, setDobEnd] = useState('');
   const [loading, setLoading] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [activeChartPatient, setActiveChartPatient] = useState<any>(null);
+  const [activeProfilePatient, setActiveProfilePatient] = useState<any>(null);
   const token = useAuthStore(state => state.token);
 
   const fetchPatients = async () => {
@@ -581,6 +642,16 @@ export const Patients = () => {
   useEffect(() => {
     fetchPatients();
   }, []);
+
+  useEffect(() => {
+    if (initialPatientId && patients.length > 0) {
+      const patient = patients.find(p => p.patient_id === initialPatientId);
+      if (patient) {
+        setActiveChartPatient(patient);
+        if (onClearInitialPatient) onClearInitialPatient();
+      }
+    }
+  }, [initialPatientId, patients]);
 
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
 
@@ -654,10 +725,23 @@ export const Patients = () => {
     }
   };
 
-  const filteredPatients = patients.filter(p => 
-    `${p.first_name} ${p.last_name}`.toLowerCase().includes(search.toLowerCase()) ||
-    String(p.patient_id || '').toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredPatients = (Array.isArray(patients) ? patients : []).filter(p => {
+    const matchesSearch = `${p.first_name} ${p.last_name}`.toLowerCase().includes(search.toLowerCase()) ||
+      String(p.patient_id || '').toLowerCase().includes(search.toLowerCase());
+    
+    let matchesDob = true;
+    if (dobStart || dobEnd) {
+      const pDob = new Date(p.date_of_birth);
+      if (dobStart) {
+        matchesDob = matchesDob && pDob >= new Date(dobStart);
+      }
+      if (dobEnd) {
+        matchesDob = matchesDob && pDob <= new Date(dobEnd);
+      }
+    }
+
+    return matchesSearch && matchesDob;
+  });
 
   return (
     <div className="space-y-6">
@@ -772,8 +856,8 @@ export const Patients = () => {
 
       <Card>
         <CardHeader>
-          <div className="flex items-center gap-4">
-            <div className="relative flex-1">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <div className="relative flex-1 w-full">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Search by name or ID..."
@@ -781,6 +865,29 @@ export const Patients = () => {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
+            </div>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <Label className="whitespace-nowrap text-sm text-muted-foreground">DOB:</Label>
+              <Input 
+                type="date" 
+                className="w-auto" 
+                value={dobStart} 
+                onChange={(e) => setDobStart(e.target.value)} 
+                title="Start Date"
+              />
+              <span className="text-muted-foreground">-</span>
+              <Input 
+                type="date" 
+                className="w-auto" 
+                value={dobEnd} 
+                onChange={(e) => setDobEnd(e.target.value)} 
+                title="End Date"
+              />
+              {(dobStart || dobEnd) && (
+                <Button variant="ghost" size="icon" onClick={() => { setDobStart(''); setDobEnd(''); }} title="Clear Dates">
+                  <XCircle className="w-4 h-4" />
+                </Button>
+              )}
             </div>
           </div>
         </CardHeader>
@@ -818,27 +925,14 @@ export const Patients = () => {
                     <TableCell>{patient.date_of_birth}</TableCell>
                     <TableCell>{patient.phone_number}</TableCell>
                     <TableCell className="text-right flex justify-end gap-2">
-                      <Dialog>
-                        <DialogTrigger render={
-                          <Button variant="default" size="sm" className="gap-2 bg-primary hover:bg-primary/90">
-                            <FileText className="w-4 h-4" /> View Chart
-                          </Button>
-                        } />
-                        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
-                          <DialogHeader className="px-6 pt-6">
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <DialogTitle className="text-2xl font-bold">Patient Medical Chart</DialogTitle>
-                                <p className="text-sm text-muted-foreground">Comprehensive clinical record for {patient.first_name} {patient.last_name}</p>
-                              </div>
-                              <Badge className="text-lg px-4 py-1">{patient.patient_id}</Badge>
-                            </div>
-                          </DialogHeader>
-                          <div className="flex-1 overflow-y-auto px-6 py-4">
-                            <PatientChart patient={patient} token={token} />
-                          </div>
-                        </DialogContent>
-                      </Dialog>
+                      <Button 
+                        variant="default" 
+                        size="sm" 
+                        className="gap-2 bg-primary hover:bg-primary/90"
+                        onClick={() => setActiveChartPatient(patient)}
+                      >
+                        <FileText className="w-4 h-4" /> View Chart
+                      </Button>
                       <Dialog>
                         <DialogTrigger render={
                           <Button variant="outline" size="sm" className="gap-2">
@@ -852,19 +946,14 @@ export const Patients = () => {
                           <EncounterHistory patientId={patient.patient_id} token={token} />
                         </DialogContent>
                       </Dialog>
-                      <Dialog>
-                        <DialogTrigger render={
-                          <Button variant="ghost" size="sm" className="gap-2">
-                            <UserCircle className="w-4 h-4" /> View Profile
-                          </Button>
-                        } />
-                        <DialogContent className="max-w-2xl">
-                          <DialogHeader>
-                            <DialogTitle>Patient Profile</DialogTitle>
-                          </DialogHeader>
-                          <PatientProfile patient={patient} token={token} onUpdate={fetchPatients} />
-                        </DialogContent>
-                      </Dialog>
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="gap-2"
+                        onClick={() => setActiveProfilePatient(patient)}
+                      >
+                        <UserCircle className="w-4 h-4" /> View Profile
+                      </Button>
                       <Dialog>
                         <DialogTrigger render={
                           <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10">
@@ -912,6 +1001,65 @@ export const Patients = () => {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Full-screen Overlays */}
+      {activeChartPatient && (
+        <div className="fixed inset-0 z-40 bg-background flex flex-col overflow-hidden">
+          <div className="flex items-center justify-between p-4 border-b bg-muted/30">
+            <div className="flex items-center gap-3">
+              <FileText className="w-6 h-6 text-primary" />
+              <div>
+                <h3 className="text-xl font-bold">Patient Medical Chart</h3>
+                <p className="text-sm text-muted-foreground">
+                  Comprehensive clinical record for {activeChartPatient.first_name} {activeChartPatient.last_name}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <Badge className="text-lg px-4 py-1">{activeChartPatient.patient_id}</Badge>
+              <Button variant="ghost" size="icon" onClick={() => setActiveChartPatient(null)}>
+                <XCircle className="w-6 h-6" />
+              </Button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="max-w-5xl mx-auto">
+              <PatientChart patient={activeChartPatient} token={token} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeProfilePatient && (
+        <div className="fixed inset-0 z-40 bg-background flex flex-col overflow-hidden">
+          <div className="flex items-center justify-between p-4 border-b bg-muted/30">
+            <div className="flex items-center gap-3">
+              <UserCircle className="w-6 h-6 text-primary" />
+              <div>
+                <h3 className="text-xl font-bold">Patient Profile</h3>
+                <p className="text-sm text-muted-foreground">
+                  Manage personal information for {activeProfilePatient.first_name} {activeProfilePatient.last_name}
+                </p>
+              </div>
+            </div>
+            <Button variant="ghost" size="icon" onClick={() => setActiveProfilePatient(null)}>
+              <XCircle className="w-6 h-6" />
+            </Button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="max-w-4xl mx-auto">
+              <PatientProfile 
+                patient={activeProfilePatient} 
+                token={token} 
+                onUpdate={() => {
+                  fetchPatients();
+                  setActiveProfilePatient(null);
+                }} 
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

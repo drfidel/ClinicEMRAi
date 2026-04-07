@@ -4,6 +4,7 @@ import { createServer as createViteServer } from 'vite';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import { addWeeks, addMonths, format } from 'date-fns';
 
 // Mock database for demo purposes (since we don't have a real Postgres running here)
 // In a real app, you'd use 'pg' pool
@@ -106,6 +107,17 @@ const mockDb = {
       ordered_imaging: [{ id: 'xray_chest', name: 'X-Ray Chest', category: 'X-Ray', price: 30000, bodyPart: 'Chest', clinicalIndication: 'Chest Pain' }],
       imaging_status: 'REPORTED',
       created_at: '2024-06-01T10:30:00Z' 
+    },
+    { 
+      id: 2, 
+      appointment_id: 2, 
+      patient_id: 'UGN-2026-0002', 
+      vitals_id: 2, 
+      diagnosis: 'Persistent Cough', 
+      notes: 'Cough for 1 week, no fever.', 
+      ordered_imaging: [{ id: 'xray_chest', name: 'X-Ray Chest', category: 'X-Ray', price: 30000, bodyPart: 'Chest', clinicalIndication: 'Persistent Cough' }],
+      imaging_status: 'REPORTED',
+      created_at: new Date().toISOString() 
     }
   ],
   lab_results: [],
@@ -121,6 +133,19 @@ const mockDb = {
       file_name: 'report_xray_chest_1.pdf',
       technician_id: 4,
       created_at: '2024-06-01T11:00:00Z'
+    },
+    {
+      id: 2,
+      encounter_id: 2,
+      imaging_id: 'xray_chest',
+      result_text: 'Normal Chest X-Ray',
+      findings: 'The lung fields are clear bilaterally. No focal consolidations, pleural effusions, or pneumothorax are identified. The cardiomediastinal silhouette is within normal limits. The visualized osseous structures are intact.',
+      impression: 'Normal chest radiograph. No acute cardiopulmonary abnormality.',
+      radiologist_name: 'Dr. Musoke John',
+      report_date: new Date().toISOString().split('T')[0],
+      file_name: 'report_xray_chest_2.pdf',
+      technician_id: 4,
+      created_at: new Date().toISOString()
     }
   ],
   invoices: [
@@ -269,6 +294,79 @@ async function startServer() {
     }
   });
 
+  // --- User Administration Routes ---
+  app.get('/api/users', authenticateToken, (req: any, res) => {
+    if (req.user.role !== 'ADMIN') return res.sendStatus(403);
+    // Exclude password hashes
+    const users = mockDb.users.map(({ passwordHash, ...u }) => u);
+    res.json(users);
+  });
+
+  app.post('/api/users', authenticateToken, (req: any, res) => {
+    if (req.user.role !== 'ADMIN') return res.sendStatus(403);
+    const { username, password, role, fullName } = req.body;
+    
+    if (mockDb.users.find(u => u.username === username)) {
+      return res.status(400).json({ message: 'Username already exists' });
+    }
+
+    const newUser = {
+      id: mockDb.users.length + 1,
+      username,
+      passwordHash: bcrypt.hashSync(password, 10),
+      role,
+      fullName,
+      created_at: new Date().toISOString()
+    };
+
+    mockDb.users.push(newUser as any);
+    logAction(req.user, 'USER_CREATED', `Created user ${username} with role ${role}`);
+    
+    const { passwordHash, ...userResponse } = newUser;
+    res.status(201).json(userResponse);
+  });
+
+  app.patch('/api/users/:id', authenticateToken, (req: any, res) => {
+    if (req.user.role !== 'ADMIN') return res.sendStatus(403);
+    const id = parseInt(req.params.id);
+    const index = mockDb.users.findIndex(u => u.id === id);
+    
+    if (index === -1) return res.status(404).json({ message: 'User not found' });
+
+    const { password, ...updates } = req.body;
+    
+    if (password) {
+      updates.passwordHash = bcrypt.hashSync(password, 10);
+    }
+
+    mockDb.users[index] = {
+      ...mockDb.users[index],
+      ...updates
+    };
+
+    logAction(req.user, 'USER_UPDATED', `Updated user ${mockDb.users[index].username}`);
+    
+    const { passwordHash, ...userResponse } = mockDb.users[index];
+    res.json(userResponse);
+  });
+
+  app.delete('/api/users/:id', authenticateToken, (req: any, res) => {
+    if (req.user.role !== 'ADMIN') return res.sendStatus(403);
+    const id = parseInt(req.params.id);
+    
+    if (id === req.user.id) {
+      return res.status(400).json({ message: 'Cannot delete your own account' });
+    }
+
+    const index = mockDb.users.findIndex(u => u.id === id);
+    if (index === -1) return res.status(404).json({ message: 'User not found' });
+
+    const username = mockDb.users[index].username;
+    mockDb.users.splice(index, 1);
+    logAction(req.user, 'USER_DELETED', `Deleted user ${username}`);
+    res.sendStatus(204);
+  });
+
   // --- Patient Routes ---
   app.get('/api/patients', authenticateToken, (req, res) => {
     res.json(mockDb.patients);
@@ -323,15 +421,45 @@ async function startServer() {
   });
 
   app.post('/api/appointments', authenticateToken, (req, res) => {
-    const appointment = {
-      ...req.body,
-      id: mockDb.appointments.length + 1,
-      status: 'WAITING',
-      created_at: new Date().toISOString()
-    };
-    mockDb.appointments.push(appointment as never);
-    logAction((req as any).user, 'APPOINTMENT_BOOKING', `Booked appointment for patient ID ${appointment.patient_id} on ${appointment.appointment_date}`);
-    res.status(201).json(appointment);
+    const { recurring, frequency, occurrences, ...rest } = req.body;
+    
+    if (recurring && occurrences > 1) {
+      const appointments = [];
+      let currentDate = new Date(rest.appointment_date);
+      
+      for (let i = 0; i < occurrences; i++) {
+        const appointment = {
+          ...rest,
+          appointment_date: format(currentDate, 'yyyy-MM-dd'),
+          id: mockDb.appointments.length + 1,
+          status: 'WAITING',
+          created_at: new Date().toISOString(),
+          recurring_group_id: mockDb.appointments.length + 1 // Use the first ID as group ID
+        };
+        
+        mockDb.appointments.push(appointment as never);
+        appointments.push(appointment);
+        
+        if (frequency === 'WEEKLY') {
+          currentDate = addWeeks(currentDate, 1);
+        } else if (frequency === 'MONTHLY') {
+          currentDate = addMonths(currentDate, 1);
+        }
+      }
+      
+      logAction((req as any).user, 'APPOINTMENT_RECURRING_BOOKING', `Booked ${occurrences} recurring appointments for patient ID ${rest.patient_id}`);
+      res.status(201).json(appointments[0]);
+    } else {
+      const appointment = {
+        ...rest,
+        id: mockDb.appointments.length + 1,
+        status: 'WAITING',
+        created_at: new Date().toISOString()
+      };
+      mockDb.appointments.push(appointment as never);
+      logAction((req as any).user, 'APPOINTMENT_BOOKING', `Booked appointment for patient ID ${appointment.patient_id} on ${appointment.appointment_date}`);
+      res.status(201).json(appointment);
+    }
   });
 
   app.patch('/api/appointments/:id', authenticateToken, (req, res) => {
@@ -474,6 +602,33 @@ async function startServer() {
     if (appt) (appt as any).status = 'COMPLETED';
 
     logAction((req as any).user, 'CONSULTATION_COMPLETED', `Completed consultation for patient ${patient_id} (Appt ID: ${appointment_id})`);
+
+    // --- Pharmacy Integration ---
+    if (encounterData.prescriptions && encounterData.prescriptions.length > 0) {
+      // Check if a prescription already exists for this appointment
+      const existingPresc = mockDb.pharmacy_prescriptions.find((p: any) => p.appointment_id === Number(appointment_id));
+      
+      if (!existingPresc) {
+        const newPrescription = {
+          id: mockDb.pharmacy_prescriptions.length + 1,
+          encounter_id: encounter.id,
+          appointment_id: Number(appointment_id),
+          patient_id,
+          items: encounterData.prescriptions,
+          status: 'PENDING',
+          prescribed_by: (req as any).user.id,
+          created_at: new Date().toISOString()
+        };
+        mockDb.pharmacy_prescriptions.push(newPrescription as never);
+        logAction((req as any).user, 'PRESCRIPTION_SUBMITTED', `Submitted prescription for patient ${patient_id} (Encounter ID: ${encounter.id})`);
+      } else if (existingPresc.status === 'PENDING') {
+        // Update existing if still pending
+        existingPresc.encounter_id = encounter.id;
+        existingPresc.items = encounterData.prescriptions;
+        existingPresc.updated_at = new Date().toISOString();
+      }
+    }
+
     res.status(201).json(encounter);
   });
 
@@ -539,6 +694,39 @@ async function startServer() {
               updated_at: new Date().toISOString()
             };
           }
+        }
+      }
+
+      // Handle prescriptions update
+      if (req.body.prescriptions) {
+        const existingPrescIndex = mockDb.pharmacy_prescriptions.findIndex((p: any) => p.encounter_id === id);
+        
+        if (req.body.prescriptions.length > 0) {
+          if (existingPrescIndex !== -1) {
+            // Update existing if still pending
+            if (mockDb.pharmacy_prescriptions[existingPrescIndex].status === 'PENDING') {
+              mockDb.pharmacy_prescriptions[existingPrescIndex] = {
+                ...mockDb.pharmacy_prescriptions[existingPrescIndex],
+                items: req.body.prescriptions,
+                updated_at: new Date().toISOString()
+              };
+            }
+          } else {
+            // Create new
+            const newPrescription = {
+              id: mockDb.pharmacy_prescriptions.length + 1,
+              encounter_id: id,
+              patient_id: existingEncounter.patient_id,
+              items: req.body.prescriptions,
+              status: 'PENDING',
+              prescribed_by: (req as any).user.id,
+              created_at: new Date().toISOString()
+            };
+            mockDb.pharmacy_prescriptions.push(newPrescription as never);
+          }
+        } else if (existingPrescIndex !== -1 && mockDb.pharmacy_prescriptions[existingPrescIndex].status === 'PENDING') {
+          // Remove if empty and was pending
+          mockDb.pharmacy_prescriptions.splice(existingPrescIndex, 1);
         }
       }
 
@@ -886,11 +1074,31 @@ async function startServer() {
   });
 
   app.post('/api/pharmacy/prescriptions', authenticateToken, (req, res) => {
-    const { encounter_id, patient_id, items } = req.body;
+    const { encounter_id, appointment_id, patient_id, items } = req.body;
     
+    // Check if a prescription already exists for this encounter or appointment
+    const existingIndex = mockDb.pharmacy_prescriptions.findIndex((p: any) => 
+      (encounter_id && p.encounter_id === Number(encounter_id)) || 
+      (appointment_id && p.appointment_id === Number(appointment_id))
+    );
+
+    if (existingIndex !== -1) {
+      if (mockDb.pharmacy_prescriptions[existingIndex].status === 'PENDING') {
+        mockDb.pharmacy_prescriptions[existingIndex] = {
+          ...mockDb.pharmacy_prescriptions[existingIndex],
+          items,
+          updated_at: new Date().toISOString()
+        };
+        return res.json(mockDb.pharmacy_prescriptions[existingIndex]);
+      } else {
+        return res.status(400).json({ message: 'Prescription already processed' });
+      }
+    }
+
     const newPrescription = {
       id: mockDb.pharmacy_prescriptions.length + 1,
-      encounter_id,
+      encounter_id: encounter_id ? Number(encounter_id) : null,
+      appointment_id: appointment_id ? Number(appointment_id) : null,
       patient_id,
       items, // Array of { medication_id, medication_name, dosage, frequency, duration, instructions }
       status: 'PENDING',
@@ -951,6 +1159,7 @@ async function startServer() {
               `Stock reduced for ${medicationName} (${item.dosage}) from batch ${batch.id}. Quantity: ${dispenseFromBatch}, Remaining Stock in batch: ${batch.stock}. Reason: Prescription Dispensed (ID: ${id})`);
           }
           
+          item.dispensed_price = itemTotalPrice;
           totalPrice += itemTotalPrice;
           invoiceItems.push({
             description: `${medicationName} (${item.dosage})`,
@@ -977,14 +1186,20 @@ async function startServer() {
         };
         mockDb.invoices.push(newInvoice as never);
         logAction((req as any).user, 'INVOICE_GENERATED', `Generated pharmacy invoice ID ${newInvoice.id} for patient ${prescription.patient_id}`);
-      }
 
-      mockDb.pharmacy_prescriptions[index] = {
-        ...prescription,
-        status,
-        dispensed_at: status === 'DISPENSED' ? new Date().toISOString() : null,
-        dispensed_by: status === 'DISPENSED' ? (req as any).user.id : null
-      };
+        mockDb.pharmacy_prescriptions[index] = {
+          ...prescription,
+          status,
+          total_price: totalPrice,
+          dispensed_at: new Date().toISOString(),
+          dispensed_by: (req as any).user.id
+        };
+      } else {
+        mockDb.pharmacy_prescriptions[index] = {
+          ...prescription,
+          status
+        };
+      }
       logAction((req as any).user, 'PRESCRIPTION_STATUS_UPDATE', `Updated prescription ID ${id} status to ${status}`);
       res.json(mockDb.pharmacy_prescriptions[index]);
     } else {
@@ -1083,10 +1298,11 @@ async function startServer() {
         const qty = Number(item.quantity || 1);
         const invItem = mockDb.inventory.find((i: any) => i.name === item.medication_name);
         const unitPrice = invItem?.price_per_unit || 0;
+        const itemPrice = item.dispensed_price !== undefined ? item.dispensed_price : (unitPrice * qty);
         
         itemSummary[key].totalDispensed += qty;
         itemSummary[key].prescriptions += 1;
-        itemSummary[key].totalPrice += (unitPrice * qty);
+        itemSummary[key].totalPrice += itemPrice;
       });
     });
 

@@ -33,7 +33,7 @@ export const AuditLogs = () => {
     fetchLogs();
   }, []);
 
-  const filteredLogs = logs.filter(log => 
+  const filteredLogs = (Array.isArray(logs) ? logs : []).filter(log => 
     log.user_name.toLowerCase().includes(search.toLowerCase()) ||
     log.action.toLowerCase().includes(search.toLowerCase()) ||
     log.details.toLowerCase().includes(search.toLowerCase())

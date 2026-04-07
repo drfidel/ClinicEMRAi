@@ -118,7 +118,7 @@ export const Imaging = () => {
     }
   };
 
-  const filteredOrders = orders.filter(order => 
+  const filteredOrders = (Array.isArray(orders) ? orders : []).filter(order => 
     String(order.patient_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
     String(order.patient_id || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -194,11 +194,19 @@ export const Imaging = () => {
                     <div className="text-xs text-muted-foreground">{order.patient_id}</div>
                   </TableCell>
                   <TableCell>
-                    <div className="flex flex-wrap gap-1">
+                    <div className="flex flex-col gap-1">
                       {order.ordered_imaging.map((img: any, idx: number) => (
-                        <Badge key={idx} variant="outline" className="text-[10px]">
-                          {img.name}
-                        </Badge>
+                        <div key={idx} className="flex flex-col border-b last:border-0 pb-1 mb-1">
+                          <Badge variant="outline" className="text-[10px] w-fit">
+                            {img.name}
+                          </Badge>
+                          {img.bodyPart && (
+                            <span className="text-[10px] font-medium mt-0.5">Part: {img.bodyPart}</span>
+                          )}
+                          {img.clinicalIndication && (
+                            <span className="text-[10px] text-muted-foreground italic">Indication: {img.clinicalIndication}</span>
+                          )}
+                        </div>
                       ))}
                     </div>
                   </TableCell>
@@ -278,8 +286,17 @@ export const Imaging = () => {
                               <div key={idx} className="p-4 border rounded-lg space-y-4 bg-muted/30">
                                 <div className="flex items-center justify-between">
                                   <div>
-                                    <h4 className="font-bold text-primary">{img.name}</h4>
-                                    <p className="text-xs text-muted-foreground">Part: {img.bodyPart} | Indication: {img.clinicalIndication}</p>
+                                    <h4 className="font-bold text-primary text-lg">{img.name}</h4>
+                                    <div className="flex flex-wrap gap-4 mt-1">
+                                      <div className="flex items-center gap-1.5 text-xs font-medium bg-blue-50 text-blue-700 px-2 py-1 rounded border border-blue-100">
+                                        <span className="text-blue-400 font-bold uppercase text-[9px]">Body Part:</span>
+                                        {img.bodyPart || 'Not specified'}
+                                      </div>
+                                      <div className="flex items-center gap-1.5 text-xs font-medium bg-amber-50 text-amber-700 px-2 py-1 rounded border border-amber-100">
+                                        <span className="text-amber-400 font-bold uppercase text-[9px]">Indication:</span>
+                                        {img.clinicalIndication || 'Not specified'}
+                                      </div>
+                                    </div>
                                   </div>
                                   {existingResult ? (
                                     <Badge className="bg-green-100 text-green-700 border-green-200 gap-1">

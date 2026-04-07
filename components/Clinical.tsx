@@ -12,8 +12,10 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
-import { Stethoscope, Activity, Pill, FlaskConical, Thermometer, Heart, Weight, Ruler, Wind, Loader2, Search, CheckCircle2, Plus, Clock, Upload, Calendar, FileText, XCircle } from 'lucide-react';
+import { Stethoscope, Activity, Pill, FlaskConical, Thermometer, Heart, Weight, Ruler, Wind, Loader2, Search, CheckCircle2, Plus, Clock, Upload, Calendar, FileText, XCircle, Edit, Trash2 } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import axios from 'axios';
 import { useAuthStore } from '@/src/lib/store';
 import { toast } from 'sonner';
@@ -76,16 +78,27 @@ export const LAB_TESTS = [
 const IMAGING_TESTS = [
   { id: 'ultrasound_abdomen', name: 'Ultrasound Abdomen', category: 'Ultrasound', price: 50000 },
   { id: 'ultrasound_pelvis', name: 'Ultrasound Pelvis', category: 'Ultrasound', price: 45000 },
+  { id: 'ultrasound_scrotal', name: 'Scrotal Ultrasound scan', category: 'Ultrasound', price: 45000 },
   { id: 'ultrasound_obstetric', name: 'Ultrasound Obstetric', category: 'Ultrasound', price: 40000 },
+  { id: 'ultrasound_thyroid', name: 'Ultrasound Thyroid', category: 'Ultrasound', price: 40000 },
+  { id: 'ultrasound_breast', name: 'Ultrasound Breast', category: 'Ultrasound', price: 45000 },
+  { id: 'ultrasound_doppler_limb', name: 'Doppler Ultrasound (Limb)', category: 'Ultrasound', price: 80000 },
   { id: 'xray_chest', name: 'X-Ray Chest', category: 'X-Ray', price: 30000 },
   { id: 'xray_limb', name: 'X-Ray Limb', category: 'X-Ray', price: 25000 },
   { id: 'xray_spine', name: 'X-Ray Spine', category: 'X-Ray', price: 40000 },
+  { id: 'xray_skull', name: 'X-Ray Skull', category: 'X-Ray', price: 35000 },
+  { id: 'xray_pelvis', name: 'X-Ray Pelvis', category: 'X-Ray', price: 35000 },
+  { id: 'xray_dental', name: 'Dental X-Ray (OPG)', category: 'X-Ray', price: 50000 },
   { id: 'ct_brain', name: 'CT Scan Brain', category: 'CT-Scan', price: 250000 },
   { id: 'ct_abdomen', name: 'CT Scan Abdomen', category: 'CT-Scan', price: 350000 },
   { id: 'ct_chest', name: 'CT Scan Chest', category: 'CT-Scan', price: 300000 },
+  { id: 'ct_pelvis', name: 'CT Scan Pelvis', category: 'CT-Scan', price: 300000 },
+  { id: 'ct_angiography', name: 'CT Angiography', category: 'CT-Scan', price: 450000 },
   { id: 'mri_brain', name: 'MRI Brain', category: 'MRI', price: 600000 },
   { id: 'mri_spine', name: 'MRI Spine', category: 'MRI', price: 750000 },
   { id: 'mri_knee', name: 'MRI Knee', category: 'MRI', price: 650000 },
+  { id: 'mri_abdomen', name: 'MRI Abdomen', category: 'MRI', price: 850000 },
+  { id: 'mri_prostate', name: 'MRI Prostate', category: 'MRI', price: 900000 },
 ];
 
 const ICD10_CODES = [
@@ -130,12 +143,21 @@ const MEDICATIONS = [
 ];
 
 const vitalsSchema = z.object({
-  temperature: z.coerce.number().min(34, "Min 34°C").max(43, "Max 43°C"),
-  blood_pressure: z.string().min(1, "Required").regex(/^\d{2,3}\/\d{2,3}$/, "Format: SYS/DIA (e.g. 120/80)"),
-  pulse: z.coerce.number().int().min(30, "Min 30 bpm").max(200, "Max 200 bpm"),
-  spo2: z.coerce.number().int().min(50, "Min 50%").max(100, "Max 100%"),
-  weight: z.coerce.number().positive("Must be positive"),
-  height: z.coerce.number().positive("Must be positive"),
+  temperature: z.preprocess((val) => (val === "" ? undefined : val), z.coerce.number().min(34, "Min 34°C").max(43, "Max 43°C").optional()),
+  blood_pressure: z.preprocess((val) => (val === "" ? undefined : val), z.string().regex(/^\d{2,3}\/\d{2,3}$/, "Format: SYS/DIA (e.g. 120/80)").optional()),
+  pulse: z.preprocess((val) => (val === "" ? undefined : val), z.coerce.number().int().min(30, "Min 30 bpm").max(200, "Max 200 bpm").optional()),
+  spo2: z.preprocess((val) => (val === "" ? undefined : val), z.coerce.number().int().min(50, "Min 50%").max(100, "Max 100%").optional()),
+  weight: z.preprocess((val) => (val === "" ? undefined : val), z.coerce.number().positive("Must be positive").optional()),
+  height: z.preprocess((val) => (val === "" ? undefined : val), z.coerce.number().positive("Must be positive").optional()),
+});
+
+const consultationVitalsSchema = z.object({
+  temperature: z.preprocess((val) => (val === "" ? undefined : val), z.coerce.number().min(34, "Min 34°C").max(43, "Max 43°C").optional()),
+  blood_pressure: z.preprocess((val) => (val === "" ? undefined : val), z.string().regex(/^\d{2,3}\/\d{2,3}$/, "Format: SYS/DIA (e.g. 120/80)").optional()),
+  pulse: z.preprocess((val) => (val === "" ? undefined : val), z.coerce.number().int().min(30, "Min 30 bpm").max(200, "Max 200 bpm").optional()),
+  spo2: z.preprocess((val) => (val === "" ? undefined : val), z.coerce.number().int().min(50, "Min 50%").max(100, "Max 100%").optional()),
+  weight: z.preprocess((val) => (val === "" ? undefined : val), z.coerce.number().positive("Must be positive").optional()),
+  height: z.preprocess((val) => (val === "" ? undefined : val), z.coerce.number().positive("Must be positive").optional()),
 });
 
 type VitalsValues = z.infer<typeof vitalsSchema>;
@@ -291,7 +313,7 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
   const [encounter, setEncounter] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [selectedLabs, setSelectedLabs] = useState<string[]>([]);
-  const [selectedImaging, setSelectedImaging] = useState<any[]>([]);
+  const [selectedImaging, setSelectedImaging] = useState<string[]>([]);
   const [selectedICD10, setSelectedICD10] = useState<string[]>([]);
   const [prescriptions, setPrescriptions] = useState<any[]>([]);
   const [labSearch, setLabSearch] = useState('');
@@ -307,10 +329,13 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
   const [isPharmacySent, setIsPharmacySent] = useState(false);
   const [selectedImagingForReport, setSelectedImagingForReport] = useState<any>(null);
   const [currentMed, setCurrentMed] = useState<any>(null);
-  const [currentImaging, setCurrentImaging] = useState<any>(null);
   const [recentImaging, setRecentImaging] = useState<any[]>([]);
+  const [recentLabs, setRecentLabs] = useState<any[]>([]);
+  const [recentPrescriptions, setRecentPrescriptions] = useState<any[]>([]);
+  const [inventory, setInventory] = useState<any[]>([]);
   const [notes, setNotes] = useState('');
-  const [prescValues, setPrescValues] = useState({ dose: 1, frequency: 3, duration: 5 });
+  const [prescValues, setPrescValues] = useState({ dose: 1, frequency: 3, duration: 5, dosage: '', instructions: '', quantity: 15, medication_name: '' });
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const { token, user } = useAuthStore();
 
   const fetchRecentImaging = async () => {
@@ -319,9 +344,34 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
         headers: { Authorization: `Bearer ${token}` }
       });
       // Filter for this patient
-      setRecentImaging(res.data.filter((o: any) => o.patient_id === appt.patient_id));
+      const data = Array.isArray(res.data) ? res.data : [];
+      setRecentImaging(data.filter((o: any) => o.patient_id === appt.patient_id));
     } catch (err) {
       console.error('Failed to fetch recent imaging', err);
+    }
+  };
+
+  const fetchRecentPrescriptions = async () => {
+    try {
+      const res = await axios.get('/api/pharmacy/prescriptions', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      // Filter for this patient
+      const data = Array.isArray(res.data) ? res.data : [];
+      setRecentPrescriptions(data.filter((p: any) => p.patient_id === appt.patient_id));
+    } catch (err) {
+      console.error('Failed to fetch recent prescriptions', err);
+    }
+  };
+
+  const fetchInventory = async () => {
+    try {
+      const res = await axios.get('/api/pharmacy/inventory', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setInventory(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      console.error('Failed to fetch inventory', err);
     }
   };
 
@@ -346,7 +396,7 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
             const enc = encounterRes.data;
             setEncounter(enc);
             setSelectedLabs(enc.ordered_labs || []);
-            setSelectedImaging(enc.ordered_imaging || []);
+            setSelectedImaging((enc.ordered_imaging || []).map((img: any) => typeof img === 'string' ? img : img.id));
             setSelectedICD10(enc.icd10_codes || []);
             setPrescriptions(enc.prescriptions || []);
             setNotes(enc.notes || '');
@@ -360,7 +410,23 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
     };
     fetchData();
     fetchRecentImaging();
+    fetchRecentLabs();
+    fetchRecentPrescriptions();
+    fetchInventory();
   }, [appt.id, appt.patient_id, appt.status, token]);
+
+  const fetchRecentLabs = async () => {
+    try {
+      const res = await axios.get('/api/lab/orders', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      // Filter for this patient
+      const data = Array.isArray(res.data) ? res.data : [];
+      setRecentLabs(data.filter((o: any) => o.patient_id === appt.patient_id));
+    } catch (err) {
+      console.error('Failed to fetch recent labs', err);
+    }
+  };
 
   const updateImagingStatus = async (encounterId: number, status: string) => {
     try {
@@ -413,7 +479,7 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
     const data = Object.fromEntries(formData);
     
     // Validation
-    const validation = vitalsSchema.safeParse({
+    const validation = consultationVitalsSchema.safeParse({
       temperature: data.temperature,
       blood_pressure: data.blood_pressure,
       pulse: data.pulse,
@@ -434,7 +500,7 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
           ...data,
           notes,
           ordered_labs: selectedLabs,
-          ordered_imaging: selectedImaging,
+          ordered_imaging: selectedImaging.map(id => IMAGING_TESTS.find(t => t.id === id)),
           icd10_codes: selectedICD10,
           prescriptions: prescriptions
         }, {
@@ -450,7 +516,7 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
           patient_id: appt.patient_id,
           doctor_id: user?.id,
           ordered_labs: selectedLabs,
-          ordered_imaging: selectedImaging,
+          ordered_imaging: selectedImaging.map(id => IMAGING_TESTS.find(t => t.id === id)),
           icd10_codes: selectedICD10,
           prescriptions: prescriptions
         }, {
@@ -474,30 +540,10 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
 
   const toggleImaging = (testId: string) => {
     setSelectedImaging(prev => 
-      prev.some(img => img.id === testId) 
-        ? prev.filter(img => img.id !== testId) 
-        : [...prev, { id: testId, ...IMAGING_TESTS.find(t => t.id === testId) }]
+      prev.includes(testId) 
+        ? prev.filter(id => id !== testId) 
+        : [...prev, testId]
     );
-  };
-
-  const addImagingRequest = (e: any) => {
-    e.preventDefault();
-    const formData = new FormData(e.target);
-    const data = Object.fromEntries(formData);
-    
-    setSelectedImaging(prev => [...prev, {
-      ...currentImaging,
-      bodyPart: data.bodyPart,
-      clinicalIndication: data.clinicalIndication
-    }]);
-    
-    setIsImagingModalOpen(false);
-    setCurrentImaging(null);
-    toast.success('Imaging request added');
-  };
-
-  const removeImaging = (index: number) => {
-    setSelectedImaging(prev => prev.filter((_, i) => i !== index));
   };
 
   const toggleICD10 = (code: string) => {
@@ -510,19 +556,76 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
 
   const addPrescription = (e: any) => {
     e.preventDefault();
-    const formData = new FormData(e.target);
-    const data = Object.fromEntries(formData);
+    const { dosage, instructions, quantity, medication_name } = prescValues;
+
+    if (!medication_name && !currentMed) {
+      toast.error('Please specify medication name');
+      return;
+    }
+
+    if (!dosage) {
+      toast.error('Please specify strength');
+      return;
+    }
+
+    // Validate against inventory stock if it's an existing medication
+    const medNameToCheck = currentMed?.name || medication_name;
+    const inventoryItems = inventory.filter(item => item.name.toLowerCase() === medNameToCheck.toLowerCase());
     
-    setPrescriptions(prev => [...prev, {
-      ...data,
-      medication_id: currentMed.id,
-      medication_name: currentMed.name
-    }]);
+    if (inventoryItems.length > 0) {
+      const totalStock = inventoryItems.reduce((sum, item) => sum + item.stock, 0);
+      if (quantity > totalStock) {
+        toast.error(`Cannot prescribe ${quantity}. Only ${totalStock} ${inventoryItems[0].unit || 'units'} available in pharmacy.`);
+        return;
+      }
+    } else {
+      // If not in inventory, maybe warn but allow? Or just allow.
+      // We will allow it but maybe show a warning.
+      toast.warning(`"${medNameToCheck}" is not in pharmacy inventory. Patient may need to buy it externally.`);
+    }
+    
+    const prescData = {
+      dose: prescValues.dose,
+      frequency: prescValues.frequency,
+      duration: prescValues.duration,
+      quantity: quantity,
+      dosage,
+      instructions,
+      medication_id: currentMed?.id || 'custom_' + Date.now(),
+      medication_name: medNameToCheck
+    };
+
+    setPrescriptions(prev => {
+      if (editingIndex !== null) {
+        const newPresc = [...prev];
+        newPresc[editingIndex] = prescData;
+        return newPresc;
+      }
+      return [...prev, prescData];
+    });
     
     setIsMedModalOpen(false);
     setCurrentMed(null);
+    setEditingIndex(null);
     setIsPharmacySent(false);
-    toast.success('Medication added to prescription');
+    toast.success(editingIndex !== null ? 'Prescription updated' : 'Medication added to prescription');
+  };
+
+  const editPrescription = (index: number) => {
+    const p = prescriptions[index];
+    const med = MEDICATIONS.find(m => m.id === p.medication_id);
+    setCurrentMed(med || null);
+    setPrescValues({
+      dose: p.dose,
+      frequency: p.frequency,
+      duration: p.duration,
+      dosage: p.dosage,
+      instructions: p.instructions,
+      quantity: p.quantity,
+      medication_name: p.medication_name
+    });
+    setEditingIndex(index);
+    setIsMedModalOpen(true);
   };
 
   const removePrescription = (index: number) => {
@@ -535,11 +638,17 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
       toast.error('No medications prescribed to send');
       return;
     }
+
+    if (!encounter && !appt.id) {
+      toast.error('Please save the consultation first');
+      return;
+    }
     
     setIsPharmacySending(true);
     try {
       await axios.post('/api/pharmacy/prescriptions', {
-        encounter_id: appt.id, // Using appt.id as encounter_id for now as encounter is not yet created
+        encounter_id: encounter?.id || null,
+        appointment_id: appt.id,
         patient_id: appt.patient_id,
         items: prescriptions
       }, {
@@ -564,7 +673,7 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
   }
 
   return (
-    <form key={appt.id} onSubmit={handleSubmit} className="space-y-6 py-4">
+    <form key={`${appt.id}-${vitals?.id || 'no-vitals'}-${encounter?.id || 'no-encounter'}`} onSubmit={handleSubmit} className="space-y-6 py-4">
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-primary font-semibold">
@@ -648,61 +757,41 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
                     <button type="button" onClick={() => toggleICD10(code)} className="ml-1 hover:text-destructive text-lg">×</button>
                   </Badge>
                 ))}
-                <Dialog open={isICDModalOpen} onOpenChange={setIsICDModalOpen}>
-                  <DialogTrigger render={
+                
+                <Popover open={isICDModalOpen} onOpenChange={setIsICDModalOpen}>
+                  <PopoverTrigger asChild>
                     <Button type="button" variant="outline" size="sm" className="h-8 text-[10px] gap-1 border-dashed">
                       <Plus className="w-3 h-3" /> Add ICD-10
                     </Button>
-                  } />
-                  <DialogContent className="max-w-5xl">
-                    <DialogHeader>
-                      <DialogTitle>Select ICD-10 Codes</DialogTitle>
-                    </DialogHeader>
-                    <div className="py-2">
-                      <div className="relative">
-                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                        <Input
-                          placeholder="Search by code or name..."
-                          className="pl-8"
-                          value={icdSearch}
-                          onChange={(e) => setIcdSearch(e.target.value)}
-                        />
-                      </div>
-                    </div>
-                    <div className="grid gap-2 py-4 max-h-[400px] overflow-y-auto">
-                      {ICD10_CODES.filter(item => 
-                        item.code.toLowerCase().includes(icdSearch.toLowerCase()) ||
-                        item.name.toLowerCase().includes(icdSearch.toLowerCase())
-                      ).map(item => (
-                        <div key={item.code} className="flex items-center space-x-2 p-1 hover:bg-accent rounded-md">
-                          <Checkbox 
-                            id={`icd-${item.code}`} 
-                            checked={selectedICD10.includes(item.code)}
-                            onCheckedChange={() => toggleICD10(item.code)}
-                          />
-                          <Label 
-                            htmlFor={`icd-${item.code}`}
-                            className="text-sm font-medium leading-none cursor-pointer flex-1"
-                          >
-                            <span className="font-bold text-primary mr-2">{item.code}</span>
-                            {item.name}
-                          </Label>
-                        </div>
-                      ))}
-                      {ICD10_CODES.filter(item => 
-                        item.code.toLowerCase().includes(icdSearch.toLowerCase()) ||
-                        item.name.toLowerCase().includes(icdSearch.toLowerCase())
-                      ).length === 0 && (
-                        <div className="text-center py-6 text-muted-foreground">
-                          No matching ICD-10 codes found
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex justify-end gap-2">
-                      <Button onClick={() => setIsICDModalOpen(false)}>Done</Button>
-                    </div>
-                  </DialogContent>
-                </Dialog>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[400px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Search ICD-10 codes..." />
+                      <CommandList>
+                        <CommandEmpty>No ICD-10 codes found.</CommandEmpty>
+                        <CommandGroup heading="Common ICD-10 Codes">
+                          {ICD10_CODES.map((item) => (
+                            <CommandItem
+                              key={item.code}
+                              onSelect={() => {
+                                toggleICD10(item.code);
+                              }}
+                              className="flex items-center justify-between"
+                            >
+                              <div className="flex flex-col">
+                                <span className="font-bold text-primary">{item.code}</span>
+                                <span className="text-xs text-muted-foreground">{item.name}</span>
+                              </div>
+                              {selectedICD10.includes(item.code) && (
+                                <CheckCircle2 className="w-4 h-4 text-primary" />
+                              )}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
           </div>
@@ -734,7 +823,79 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
             <FlaskConical className="w-5 h-5" />
             <h3>Laboratory Orders</h3>
           </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground font-medium">Total Lab Fees: </span>
+            <Badge variant="secondary" className="text-primary font-bold">
+              {LAB_TESTS
+                .filter(t => selectedLabs.includes(t.id))
+                .reduce((sum, t) => sum + t.price, 0)
+                .toLocaleString()} UGX
+            </Badge>
+          </div>
         </div>
+
+        <div className="space-y-3">
+          <Label className="text-xs text-muted-foreground uppercase tracking-wider">Search & Add Lab Tests</Label>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search CBC, Malaria, HIV, Urinalysis..."
+              className="pl-8"
+              value={labSearch}
+              onChange={(e) => setLabSearch(e.target.value)}
+            />
+            {labSearch && (
+              <div className="absolute z-10 w-full mt-1 bg-background border rounded-md shadow-lg max-h-[200px] overflow-y-auto">
+                {LAB_TESTS.filter(t => 
+                  t.name.toLowerCase().includes(labSearch.toLowerCase()) || 
+                  t.category.toLowerCase().includes(labSearch.toLowerCase())
+                ).map(test => (
+                  <div
+                    key={test.id}
+                    className="flex items-center justify-between p-2 hover:bg-accent cursor-pointer border-b last:border-0"
+                    onClick={() => {
+                      toggleLab(test.id);
+                      setLabSearch('');
+                    }}
+                  >
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium">{test.name}</span>
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-wider">{test.category}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded">
+                        {test.price === 0 ? 'FREE' : `${test.price.toLocaleString()} UGX`}
+                      </span>
+                      {selectedLabs.includes(test.id) && <CheckCircle2 className="w-4 h-4 text-primary" />}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <Label className="text-xs text-muted-foreground uppercase tracking-wider">Quick Select Common Tests</Label>
+          <div className="flex flex-wrap gap-2">
+            {LAB_TESTS.slice(0, 8).map(test => {
+              const isSelected = selectedLabs.includes(test.id);
+              return (
+                <Badge
+                  key={test.id}
+                  variant={isSelected ? "default" : "outline"}
+                  className="cursor-pointer hover:bg-primary/90 transition-colors py-1.5 px-3 gap-2"
+                  onClick={() => toggleLab(test.id)}
+                >
+                  {test.name}
+                  <span className="opacity-70 text-[10px]">({test.price === 0 ? 'FREE' : `${test.price.toLocaleString()} UGX`})</span>
+                  {isSelected && <CheckCircle2 className="w-3 h-3 ml-1" />}
+                </Badge>
+              );
+            })}
+          </div>
+        </div>
+
         {selectedLabs.length > 0 ? (
           <div className="border rounded-lg overflow-hidden">
             <Table>
@@ -796,6 +957,74 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
             No laboratory tests ordered yet
           </div>
         )}
+
+        {recentLabs.length > 0 && (
+          <div className="space-y-3 pt-4">
+            <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+              <Clock className="w-4 h-4" />
+              Recent Lab Orders & Results
+            </div>
+            <div className="border rounded-lg overflow-hidden">
+              <Table>
+                <TableHeader className="bg-muted/50">
+                  <TableRow>
+                    <TableHead className="h-9 text-[11px] uppercase">Date</TableHead>
+                    <TableHead className="h-9 text-[11px] uppercase">Tests</TableHead>
+                    <TableHead className="h-9 text-[11px] uppercase">Status</TableHead>
+                    <TableHead className="h-9 text-[11px] uppercase text-right">Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {recentLabs.map((order) => (
+                    <TableRow key={order.id}>
+                      <TableCell className="py-2 text-xs">
+                        {new Date(order.created_at).toLocaleDateString()}
+                      </TableCell>
+                      <TableCell className="py-2">
+                        <div className="flex flex-wrap gap-1">
+                          {order.ordered_labs.map((labId: string, idx: number) => (
+                            <Badge key={idx} variant="outline" className="text-[10px]">
+                              {LAB_TESTS.find(t => t.id === labId)?.name || labId}
+                            </Badge>
+                          ))}
+                        </div>
+                      </TableCell>
+                      <TableCell className="py-2">
+                        <Badge 
+                          variant={order.status === 'COMPLETED' ? 'default' : 'secondary'}
+                          className={cn(
+                            "text-[10px] px-1.5 py-0",
+                            order.status === 'COMPLETED' && "bg-green-500 hover:bg-green-600",
+                            order.status === 'PENDING' && "bg-amber-500 hover:bg-amber-600 text-white"
+                          )}
+                        >
+                          {order.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="py-2 text-right">
+                        {order.status === 'COMPLETED' ? (
+                          <Button 
+                            type="button" 
+                            variant="outline" 
+                            size="sm" 
+                            className="h-7 text-[10px] gap-1"
+                            onClick={() => {
+                              toast.info('Viewing results feature coming soon');
+                            }}
+                          >
+                            <FileText className="w-3 h-3" /> Results
+                          </Button>
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground italic">Awaiting results</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        )}
       </div>
 
       <Separator />
@@ -804,12 +1033,15 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-primary font-semibold">
             <Search className="w-5 h-5" />
-            <h3>Imaging Requests</h3>
+            <h3>Imaging Orders</h3>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground font-medium">Total Imaging: </span>
             <Badge variant="secondary" className="text-primary font-bold">
-              {selectedImaging.reduce((sum, t) => sum + (t.price || 0), 0).toLocaleString()} UGX
+              {IMAGING_TESTS
+                .filter(t => selectedImaging.includes(t.id))
+                .reduce((sum, t) => sum + t.price, 0)
+                .toLocaleString()} UGX
             </Badge>
           </div>
         </div>
@@ -834,8 +1066,7 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
                     key={test.id}
                     className="flex items-center justify-between p-2 hover:bg-accent cursor-pointer border-b last:border-0"
                     onClick={() => {
-                      setCurrentImaging(test);
-                      setIsImagingModalOpen(true);
+                      toggleImaging(test.id);
                       setImagingSearch('');
                     }}
                   >
@@ -843,9 +1074,12 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
                       <span className="text-sm font-medium">{test.name}</span>
                       <span className="text-[10px] text-muted-foreground uppercase tracking-wider">{test.category}</span>
                     </div>
-                    <span className="text-xs font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded">
-                      {test.price.toLocaleString()} UGX
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded">
+                        {test.price.toLocaleString()} UGX
+                      </span>
+                      {selectedImaging.includes(test.id) && <CheckCircle2 className="w-4 h-4 text-primary" />}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -857,20 +1091,13 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
           <Label className="text-xs text-muted-foreground uppercase tracking-wider">Quick Select Common Investigations</Label>
           <div className="flex flex-wrap gap-2">
             {IMAGING_TESTS.slice(0, 8).map(test => {
-              const isSelected = selectedImaging.some(img => img.id === test.id);
+              const isSelected = selectedImaging.includes(test.id);
               return (
                 <Badge
                   key={test.id}
                   variant={isSelected ? "default" : "outline"}
                   className="cursor-pointer hover:bg-primary/90 transition-colors py-1.5 px-3 gap-2"
-                  onClick={() => {
-                    if (isSelected) {
-                      setSelectedImaging(prev => prev.filter(img => img.id !== test.id));
-                    } else {
-                      setCurrentImaging(test);
-                      setIsImagingModalOpen(true);
-                    }
-                  }}
+                  onClick={() => toggleImaging(test.id)}
                 >
                   {test.name}
                   <span className="opacity-70 text-[10px]">({test.price.toLocaleString()} UGX)</span>
@@ -887,28 +1114,25 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
               <TableHeader className="bg-muted/50">
                 <TableRow>
                   <TableHead className="h-9 text-[11px] uppercase">Investigation</TableHead>
-                  <TableHead className="h-9 text-[11px] uppercase">Body Part</TableHead>
-                  <TableHead className="h-9 text-[11px] uppercase">Indication</TableHead>
+                  <TableHead className="h-9 text-[11px] uppercase">Category</TableHead>
                   <TableHead className="h-9 text-[11px] uppercase text-right">Price</TableHead>
                   <TableHead className="h-9 text-[11px] uppercase text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {selectedImaging.map((img, idx) => {
+                {selectedImaging.map((imgId) => {
+                  const test = IMAGING_TESTS.find(t => t.id === imgId);
+                  if (!test) return null;
                   return (
-                    <TableRow key={idx}>
+                    <TableRow key={imgId}>
                       <TableCell className="py-2 font-medium">
-                        <div className="flex flex-col">
-                          <span>{img.name}</span>
-                          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">{img.category}</span>
-                        </div>
+                        {test.name}
                       </TableCell>
-                      <TableCell className="py-2 text-sm">{img.bodyPart || 'Not specified'}</TableCell>
-                      <TableCell className="py-2 text-xs text-muted-foreground max-w-[200px] truncate" title={img.clinicalIndication}>
-                        {img.clinicalIndication || 'Not specified'}
+                      <TableCell className="py-2 text-xs text-muted-foreground">
+                        {test.category}
                       </TableCell>
                       <TableCell className="py-2 text-right font-mono text-xs">
-                        {img.price.toLocaleString()} UGX
+                        {test.price.toLocaleString()} UGX
                       </TableCell>
                       <TableCell className="py-2 text-right">
                         <Button 
@@ -916,7 +1140,7 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
                           variant="ghost" 
                           size="sm" 
                           className="h-7 w-7 p-0 text-destructive"
-                          onClick={() => removeImaging(idx)}
+                          onClick={() => toggleImaging(imgId)}
                         >
                           ×
                         </Button>
@@ -925,9 +1149,10 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
                   );
                 })}
                 <TableRow className="bg-muted/30 font-semibold">
-                  <TableCell colSpan={3} className="py-2">Total Imaging Fees</TableCell>
+                  <TableCell colSpan={2} className="py-2">Total Imaging Fees</TableCell>
                   <TableCell className="py-2 text-right text-primary">
-                    {selectedImaging
+                    {IMAGING_TESTS
+                      .filter(t => selectedImaging.includes(t.id))
                       .reduce((sum, t) => sum + t.price, 0)
                       .toLocaleString()} UGX
                   </TableCell>
@@ -946,7 +1171,7 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
           <div className="space-y-3 pt-4">
             <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground uppercase tracking-wider">
               <Clock className="w-4 h-4" />
-              Recent Imaging Status
+              Recent Imaging Orders & Results
             </div>
             <div className="border rounded-lg overflow-hidden">
               <Table>
@@ -1128,135 +1353,252 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
                 {isPharmacySent ? 'Sent to Pharmacy' : 'Send to Pharmacy'}
               </Button>
             )}
-            <Dialog open={isMedModalOpen} onOpenChange={setIsMedModalOpen}>
-            <DialogTrigger render={
-              <Button type="button" variant="outline" size="sm" className="gap-2 relative">
-                <Plus className="w-4 h-4" /> Prescribe Medication
-                {prescriptions.length > 0 && (
-                  <Badge className="absolute -top-2 -right-2 px-1.5 py-0.5 min-w-[20px] h-5 flex items-center justify-center text-[10px]">
-                    {prescriptions.length}
-                  </Badge>
-                )}
-              </Button>
-            } />
-            <DialogContent className="max-w-5xl">
-              <DialogHeader>
-                <DialogTitle>Prescribe Medication</DialogTitle>
-              </DialogHeader>
-              
-              {!currentMed ? (
-                <div className="space-y-4">
-                  <div className="relative">
-                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Search medications..."
-                      className="pl-8"
-                      value={medSearch}
-                      onChange={(e) => setMedSearch(e.target.value)}
-                    />
-                  </div>
-                  <div className="grid gap-2 py-4 max-h-[300px] overflow-y-auto">
-                    {MEDICATIONS.filter(m => 
-                      m.name.toLowerCase().includes(medSearch.toLowerCase()) ||
-                      m.category.toLowerCase().includes(medSearch.toLowerCase())
-                    ).map(med => (
-                      <div 
-                        key={med.id} 
-                        className="flex items-center justify-between p-3 hover:bg-accent rounded-lg cursor-pointer border transition-colors"
-                        onClick={() => {
-                          setCurrentMed(med);
-                          setPrescValues({ dose: 1, frequency: 3, duration: 5 });
-                        }}
-                      >
-                        <div>
-                          <p className="font-medium">{med.name}</p>
-                          <p className="text-xs text-muted-foreground">{med.category} • {med.dosage}</p>
-                        </div>
-                        <Plus className="w-4 h-4 text-muted-foreground" />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <form onSubmit={addPrescription} className="space-y-4 py-4">
-                  <div className="p-3 bg-primary/5 rounded-lg border border-primary/20 mb-4">
-                    <p className="text-sm font-semibold text-primary">{currentMed.name}</p>
-                    <p className="text-xs text-muted-foreground">{currentMed.category}</p>
-                  </div>
-                  
-                  <div className="grid gap-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="dose">Dose (Units)</Label>
-                        <Input 
-                          id="dose" 
-                          name="dose" 
-                          type="number" 
-                          value={prescValues.dose} 
-                          onChange={(e) => setPrescValues(prev => ({ ...prev, dose: Number(e.target.value) }))}
-                          required 
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="dosage">Strength</Label>
-                        <Input id="dosage" name="dosage" defaultValue={currentMed.dosage} required />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="frequency">Frequency (times/day)</Label>
-                        <Input 
-                          id="frequency" 
-                          name="frequency" 
-                          type="number" 
-                          value={prescValues.frequency} 
-                          onChange={(e) => setPrescValues(prev => ({ ...prev, frequency: Number(e.target.value) }))}
-                          placeholder="e.g. 3" 
-                          required 
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="duration">Duration (days)</Label>
-                        <Input 
-                          id="duration" 
-                          name="duration" 
-                          type="number" 
-                          value={prescValues.duration} 
-                          onChange={(e) => setPrescValues(prev => ({ ...prev, duration: Number(e.target.value) }))}
-                          placeholder="e.g. 5" 
-                          required 
-                        />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="quantity">Total Quantity</Label>
-                        <Input 
-                          id="quantity" 
-                          name="quantity" 
-                          type="number" 
-                          value={prescValues.dose * prescValues.frequency * prescValues.duration} 
-                          readOnly 
-                          className="bg-muted font-bold text-primary"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="instructions">Instructions</Label>
-                        <Input id="instructions" name="instructions" placeholder="e.g. After meals" />
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="flex gap-2 pt-4">
-                    <Button type="button" variant="outline" className="flex-1" onClick={() => setCurrentMed(null)}>Back</Button>
-                    <Button type="submit" className="flex-1">Add to List</Button>
-                  </div>
-                </form>
+            <Button 
+              type="button" 
+              variant="outline" 
+              size="sm" 
+              className="gap-2 relative"
+              onClick={() => {
+                setCurrentMed(null);
+                setEditingIndex(null);
+                setMedSearch('');
+                setIsMedModalOpen(true);
+              }}
+            >
+              <Plus className="w-4 h-4" /> Prescribe Medication
+              {prescriptions.length > 0 && (
+                <Badge className="absolute -top-2 -right-2 px-1.5 py-0.5 min-w-[20px] h-5 flex items-center justify-center text-[10px]">
+                  {prescriptions.length}
+                </Badge>
               )}
-            </DialogContent>
-          </Dialog>
+            </Button>
+            <Dialog open={isMedModalOpen} onOpenChange={(open) => {
+              setIsMedModalOpen(open);
+              if (!open) {
+                setCurrentMed(null);
+                setEditingIndex(null);
+              }
+            }}>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>{editingIndex !== null ? 'Edit Prescription' : 'Prescribe Medication'}</DialogTitle>
+                </DialogHeader>
+                
+                {!currentMed ? (
+                  <div className="space-y-4">
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Search medications..."
+                        className="pl-8"
+                        value={medSearch}
+                        onChange={(e) => setMedSearch(e.target.value)}
+                      />
+                    </div>
+                    
+                    <div className="space-y-3">
+                      <Label className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold">Quick Select</Label>
+                      <div className="flex flex-wrap gap-2">
+                        {MEDICATIONS.slice(0, 8).map(med => (
+                          <Badge
+                            key={med.id}
+                            variant="outline"
+                            className="cursor-pointer hover:bg-primary/90 hover:text-primary-foreground transition-colors py-1.5 px-3 gap-2"
+                            onClick={() => {
+                              setCurrentMed(med);
+                              setPrescValues({ dose: 1, frequency: 3, duration: 5, dosage: med.dosage, instructions: '', quantity: 15, medication_name: med.name });
+                            }}
+                          >
+                            {med.name}
+                            <span className="opacity-70 text-[10px]">({med.dosage})</span>
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="grid gap-2 py-4 max-h-[300px] overflow-y-auto">
+                      {MEDICATIONS.filter(m => 
+                        m.name.toLowerCase().includes(medSearch.toLowerCase()) ||
+                        m.category.toLowerCase().includes(medSearch.toLowerCase())
+                      ).length === 0 && medSearch && (
+                        <div 
+                          className="flex items-center justify-between p-3 hover:bg-accent rounded-lg cursor-pointer border border-dashed border-primary/50 transition-colors"
+                          onClick={() => {
+                            setCurrentMed(null);
+                            setPrescValues({ dose: 1, frequency: 3, duration: 5, dosage: '', instructions: '', quantity: 15, medication_name: medSearch });
+                          }}
+                        >
+                          <div>
+                            <p className="font-medium text-primary">Add Custom: "{medSearch}"</p>
+                            <p className="text-xs text-muted-foreground">Click to specify details for this medication</p>
+                          </div>
+                          <Plus className="w-4 h-4 text-primary" />
+                        </div>
+                      )}
+                      {MEDICATIONS.filter(m => 
+                        m.name.toLowerCase().includes(medSearch.toLowerCase()) ||
+                        m.category.toLowerCase().includes(medSearch.toLowerCase())
+                      ).map(med => (
+                        <div 
+                          key={med.id} 
+                          className="flex items-center justify-between p-3 hover:bg-accent rounded-lg cursor-pointer border transition-colors"
+                          onClick={() => {
+                            setCurrentMed(med);
+                            setPrescValues({ dose: 1, frequency: 3, duration: 5, dosage: med.dosage, instructions: '', quantity: 15, medication_name: med.name });
+                          }}
+                        >
+                          <div>
+                            <p className="font-medium">{med.name}</p>
+                            <p className="text-xs text-muted-foreground">{med.category} • {med.dosage}</p>
+                          </div>
+                          <Plus className="w-4 h-4 text-muted-foreground" />
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex justify-end pt-4 border-t">
+                      <Button variant="outline" onClick={() => setIsMedModalOpen(false)}>Cancel</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4 py-4">
+                    <div className="p-3 bg-primary/5 rounded-lg border border-primary/20 mb-4">
+                      <p className="text-sm font-semibold text-primary">{currentMed?.name || prescValues.medication_name}</p>
+                      <p className="text-xs text-muted-foreground">{currentMed?.category || 'Custom Medication'}</p>
+                    </div>
+                    
+                    <div className="grid gap-4">
+                      {!currentMed && (
+                        <div className="space-y-2">
+                          <Label htmlFor="medication_name">Medication Name</Label>
+                          <Input 
+                            id="medication_name" 
+                            name="medication_name" 
+                            value={prescValues.medication_name} 
+                            onChange={(e) => setPrescValues(prev => ({ ...prev, medication_name: e.target.value }))}
+                            required 
+                          />
+                        </div>
+                      )}
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="dose">Dose (Units)</Label>
+                          <Input 
+                            id="dose" 
+                            name="dose" 
+                            type="number" 
+                            value={prescValues.dose} 
+                            onChange={(e) => {
+                              const dose = Number(e.target.value);
+                              setPrescValues(prev => ({ 
+                                ...prev, 
+                                dose, 
+                                quantity: dose * prev.frequency * prev.duration 
+                              }));
+                            }}
+                            required 
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="dosage">Strength</Label>
+                          <Input 
+                            id="dosage" 
+                            name="dosage" 
+                            value={prescValues.dosage} 
+                            onChange={(e) => setPrescValues(prev => ({ ...prev, dosage: e.target.value }))}
+                            required 
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="frequency">Frequency (times/day)</Label>
+                          <Input 
+                            id="frequency" 
+                            name="frequency" 
+                            type="number" 
+                            value={prescValues.frequency} 
+                            onChange={(e) => {
+                              const frequency = Number(e.target.value);
+                              setPrescValues(prev => ({ 
+                                ...prev, 
+                                frequency, 
+                                quantity: prev.dose * frequency * prev.duration 
+                              }));
+                            }}
+                            placeholder="e.g. 3" 
+                            required 
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="duration">Duration (days)</Label>
+                          <Input 
+                            id="duration" 
+                            name="duration" 
+                            type="number" 
+                            value={prescValues.duration} 
+                            onChange={(e) => {
+                              const duration = Number(e.target.value);
+                              setPrescValues(prev => ({ 
+                                ...prev, 
+                                duration, 
+                                quantity: prev.dose * prev.frequency * duration 
+                              }));
+                            }}
+                            placeholder="e.g. 5" 
+                            required 
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="quantity">Total Quantity</Label>
+                          <Input 
+                            id="quantity" 
+                            name="quantity" 
+                            type="number" 
+                            value={prescValues.quantity} 
+                            onChange={(e) => setPrescValues(prev => ({ ...prev, quantity: Number(e.target.value) }))}
+                            className="font-bold text-primary"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="instructions">Instructions</Label>
+                          <Input 
+                            id="instructions" 
+                            name="instructions" 
+                            value={prescValues.instructions} 
+                            onChange={(e) => setPrescValues(prev => ({ ...prev, instructions: e.target.value }))}
+                            placeholder="e.g. After meals" 
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="flex gap-2 pt-4">
+                      <Button type="button" variant="outline" className="flex-1" onClick={() => {
+                        if (editingIndex !== null) {
+                          setIsMedModalOpen(false);
+                        } else {
+                          setCurrentMed(null);
+                        }
+                      }}>
+                        {editingIndex !== null ? 'Cancel' : 'Back'}
+                      </Button>
+                      <Button type="button" className="flex-1" onClick={addPrescription}>
+                        {editingIndex !== null ? 'Update Prescription' : 'Add to List'}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </DialogContent>
+            </Dialog>
+          </div>
         </div>
-      </div>
+
+        <div className="space-y-3">
+          {/* Removed redundant search and quick select to focus on modal action */}
+        </div>
+
         {prescriptions.length > 0 ? (
           <div className="border rounded-lg overflow-hidden">
             <Table>
@@ -1267,7 +1609,7 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
                   <TableHead className="h-9 text-[11px] uppercase">Freq</TableHead>
                   <TableHead className="h-9 text-[11px] uppercase">Dur</TableHead>
                   <TableHead className="h-9 text-[11px] uppercase">Qty</TableHead>
-                  <TableHead className="h-9 text-[11px] uppercase text-right">Action</TableHead>
+                  <TableHead className="h-9 text-[11px] uppercase text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1282,15 +1624,26 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
                     <TableCell className="py-2 text-xs">{p.duration}d</TableCell>
                     <TableCell className="py-2 font-bold text-xs">{p.quantity}</TableCell>
                     <TableCell className="py-2 text-right">
-                      <Button 
-                        type="button" 
-                        variant="ghost" 
-                        size="sm" 
-                        className="h-7 w-7 p-0 text-destructive"
-                        onClick={() => removePrescription(idx)}
-                      >
-                        ×
-                      </Button>
+                      <div className="flex justify-end gap-1">
+                        <Button 
+                          type="button" 
+                          variant="ghost" 
+                          size="sm" 
+                          className="h-7 w-7 p-0 text-primary"
+                          onClick={() => editPrescription(idx)}
+                        >
+                          <Edit className="w-3 h-3" />
+                        </Button>
+                        <Button 
+                          type="button" 
+                          variant="ghost" 
+                          size="sm" 
+                          className="h-7 w-7 p-0 text-destructive"
+                          onClick={() => removePrescription(idx)}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -1302,6 +1655,52 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
             No medications prescribed yet
           </div>
         )}
+
+        {recentPrescriptions.length > 0 && (
+          <div className="space-y-3 pt-4">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs text-muted-foreground uppercase tracking-wider">Recent Prescriptions</Label>
+              <Badge variant="secondary" className="text-[10px]">{recentPrescriptions.length} Records</Badge>
+            </div>
+            <div className="border rounded-lg overflow-hidden bg-muted/20">
+              <Table>
+                <TableHeader className="bg-muted/50">
+                  <TableRow>
+                    <TableHead className="h-8 text-[10px] uppercase">Date</TableHead>
+                    <TableHead className="h-8 text-[10px] uppercase">Medications</TableHead>
+                    <TableHead className="h-8 text-[10px] uppercase">Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {recentPrescriptions.slice(0, 3).map((p, idx) => (
+                    <TableRow key={idx} className="hover:bg-muted/30">
+                      <TableCell className="py-2 text-[11px] whitespace-nowrap">
+                        {new Date(p.created_at).toLocaleDateString()}
+                      </TableCell>
+                      <TableCell className="py-2">
+                        <div className="flex flex-wrap gap-1">
+                          {p.items.map((item: any, i: number) => (
+                            <Badge key={i} variant="outline" className="text-[9px] py-0 px-1 font-normal">
+                              {item.medication_name}
+                            </Badge>
+                          ))}
+                        </div>
+                      </TableCell>
+                      <TableCell className="py-2">
+                        <Badge 
+                          variant={p.status === 'DISPENSED' ? 'default' : 'secondary'} 
+                          className="text-[9px] py-0 px-1 h-4"
+                        >
+                          {p.status}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        )}
       </div>
 
       <Separator />
@@ -1311,17 +1710,15 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
           {encounter ? 'Update Consultation' : 'Complete & Save Consultation'}
         </Button>
         <div className="flex gap-2">
+          <Button type="button" variant="outline" className="gap-2 h-11 relative" onClick={() => setIsLabModalOpen(true)}>
+            <FlaskConical className="w-4 h-4" /> Order Lab
+            {selectedLabs.length > 0 && (
+              <Badge className="absolute -top-2 -right-2 px-1.5 py-0.5 min-w-[20px] h-5 flex items-center justify-center text-[10px]">
+                {selectedLabs.length}
+              </Badge>
+            )}
+          </Button>
           <Dialog open={isLabModalOpen} onOpenChange={setIsLabModalOpen}>
-            <DialogTrigger render={
-              <Button type="button" variant="outline" className="gap-2 h-11 relative">
-                <FlaskConical className="w-4 h-4" /> Order Lab
-                {selectedLabs.length > 0 && (
-                  <Badge className="absolute -top-2 -right-2 px-1.5 py-0.5 min-w-[20px] h-5 flex items-center justify-center text-[10px]">
-                    {selectedLabs.length}
-                  </Badge>
-                )}
-              </Button>
-            } />
             <DialogContent className="max-w-5xl">
               <DialogHeader>
                 <DialogTitle>Order Laboratory Tests</DialogTitle>
@@ -1416,98 +1813,76 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
             </DialogContent>
           </Dialog>
 
+          <Button type="button" variant="outline" className="gap-2 h-11 relative" onClick={() => setIsImagingModalOpen(true)}>
+            <Search className="w-4 h-4" /> Request Imaging
+            {selectedImaging.length > 0 && (
+              <Badge className="absolute -top-2 -right-2 px-1.5 py-0.5 min-w-[20px] h-5 flex items-center justify-center text-[10px]">
+                {selectedImaging.length}
+              </Badge>
+            )}
+          </Button>
           <Dialog open={isImagingModalOpen} onOpenChange={setIsImagingModalOpen}>
-            <DialogTrigger render={
-              <Button type="button" variant="outline" className="gap-2 h-11 relative">
-                <Search className="w-4 h-4" /> Request Imaging
-                {selectedImaging.length > 0 && (
-                  <Badge className="absolute -top-2 -right-2 px-1.5 py-0.5 min-w-[20px] h-5 flex items-center justify-center text-[10px]">
-                    {selectedImaging.length}
-                  </Badge>
-                )}
-              </Button>
-            } />
             <DialogContent className="max-w-5xl">
               <DialogHeader>
-                <DialogTitle>Request Imaging Investigation</DialogTitle>
+                <DialogTitle>Request Imaging Investigations</DialogTitle>
               </DialogHeader>
-              
-              {!currentImaging ? (
-                <div className="space-y-4">
-                  <div className="relative">
-                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Search ultrasound, xray, ct, mri..."
-                      className="pl-8"
-                      value={imagingSearch}
-                      onChange={(e) => setImagingSearch(e.target.value)}
-                    />
-                  </div>
-                  <div className="grid gap-2 py-4 max-h-[400px] overflow-y-auto">
-                    <div className="space-y-4">
-                      {Array.from(new Set(IMAGING_TESTS
-                        .filter(t => 
-                          t.name.toLowerCase().includes(imagingSearch.toLowerCase()) || 
-                          t.category.toLowerCase().includes(imagingSearch.toLowerCase())
-                        )
-                        .map(t => t.category))).map(category => (
-                        <div key={category} className="space-y-2">
-                          <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">{category}</h4>
-                          <div className="grid gap-2">
-                            {IMAGING_TESTS
-                              .filter(t => t.category === category)
-                              .filter(t => 
-                                t.name.toLowerCase().includes(imagingSearch.toLowerCase()) || 
-                                t.category.toLowerCase().includes(imagingSearch.toLowerCase())
-                              )
-                              .map(test => (
-                              <div 
-                                key={test.id} 
-                                className="flex items-center justify-between p-3 hover:bg-accent rounded-lg cursor-pointer border transition-colors"
-                                onClick={() => setCurrentImaging(test)}
-                              >
-                                <div>
-                                  <p className="font-medium">{test.name}</p>
-                                  <p className="text-xs text-muted-foreground">{test.category}</p>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <span className="text-xs font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded">
-                                    {test.price.toLocaleString()} UGX
-                                  </span>
-                                  <Plus className="w-4 h-4 text-muted-foreground" />
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+              <div className="py-2">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search investigations or categories..."
+                    className="pl-8"
+                    value={imagingSearch}
+                    onChange={(e) => setImagingSearch(e.target.value)}
+                  />
                 </div>
-              ) : (
-                <form onSubmit={addImagingRequest} className="space-y-4 py-4">
-                  <div className="p-3 bg-primary/5 rounded-lg border border-primary/20 mb-4">
-                    <p className="text-sm font-semibold text-primary">{currentImaging.name}</p>
-                    <p className="text-xs text-muted-foreground">{currentImaging.category}</p>
-                  </div>
-                  
-                  <div className="grid gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="bodyPart">Body Part</Label>
-                      <Input id="bodyPart" name="bodyPart" placeholder="e.g. Abdomen, Right Knee, Chest" required />
+              </div>
+              <div className="grid gap-4 py-4 max-h-[400px] overflow-y-auto">
+                <div className="space-y-4">
+                  {Array.from(new Set(IMAGING_TESTS
+                    .filter(t => 
+                      t.name.toLowerCase().includes(imagingSearch.toLowerCase()) || 
+                      t.category.toLowerCase().includes(imagingSearch.toLowerCase())
+                    )
+                    .map(t => t.category))).map(category => (
+                    <div key={category} className="space-y-2">
+                      <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">{category}</h4>
+                      <div className="grid gap-2">
+                        {IMAGING_TESTS
+                          .filter(t => t.category === category)
+                          .filter(t => 
+                            t.name.toLowerCase().includes(imagingSearch.toLowerCase()) || 
+                            t.category.toLowerCase().includes(imagingSearch.toLowerCase())
+                          )
+                          .map(test => (
+                          <div key={test.id} className="flex items-start space-x-3 p-2 hover:bg-accent rounded-lg transition-colors border border-transparent hover:border-border">
+                            <Checkbox 
+                              id={test.id} 
+                              checked={selectedImaging.includes(test.id)}
+                              onCheckedChange={() => toggleImaging(test.id)}
+                              className="mt-1"
+                            />
+                            <Label 
+                              htmlFor={test.id}
+                              className="flex-1 space-y-1 cursor-pointer"
+                            >
+                              <div className="flex justify-between items-center">
+                                <span className="text-sm font-semibold">{test.name}</span>
+                                <span className="text-xs font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded">
+                                  {test.price.toLocaleString()} UGX
+                                </span>
+                              </div>
+                            </Label>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="clinicalIndication">Clinical Indication</Label>
-                      <Textarea id="clinicalIndication" name="clinicalIndication" placeholder="Reason for investigation..." required />
-                    </div>
-                  </div>
-                  
-                  <div className="flex gap-2 pt-4">
-                    <Button type="button" variant="outline" className="flex-1" onClick={() => setCurrentImaging(null)}>Back</Button>
-                    <Button type="submit" className="flex-1">Add Request</Button>
-                  </div>
-                </form>
-              )}
+                  ))}
+                </div>
+              </div>
+              <DialogFooter>
+                <DialogClose render={<Button type="button">Done</Button>} />
+              </DialogFooter>
             </DialogContent>
           </Dialog>
         </div>
@@ -1521,6 +1896,8 @@ export const Clinical = () => {
   const [patients, setPatients] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [activeVitalsAppt, setActiveVitalsAppt] = useState<any>(null);
+  const [activeConsultationAppt, setActiveConsultationAppt] = useState<any>(null);
   const { token, user } = useAuthStore();
 
   const fetchData = async () => {
@@ -1602,7 +1979,7 @@ export const Clinical = () => {
     }
   };
 
-  const filteredAppointments = appointments.filter(appt => {
+  const filteredAppointments = (Array.isArray(appointments) ? appointments : []).filter(appt => {
     const patient = getPatientInfo(appt.patient_id);
     const searchLower = searchTerm.toLowerCase();
     const patientName = patient ? String(`${patient.first_name} ${patient.last_name}`).toLowerCase() : '';
@@ -1671,50 +2048,34 @@ export const Clinical = () => {
                     <TableCell>{new Date(appt.created_at).toLocaleTimeString()}</TableCell>
                     <TableCell className="text-right">
                       {appt.status === 'WAITING' && (user?.role === 'NURSE' || user?.role === 'DOCTOR') && (
-                        <Dialog>
-                          <DialogTrigger render={
-                            <Button size="sm" variant="outline" className="gap-2">
-                              {user?.role === 'DOCTOR' ? <Stethoscope className="w-4 h-4" /> : <Activity className="w-4 h-4" />}
-                              {user?.role === 'DOCTOR' ? 'Start Consultation' : 'Triage'}
-                            </Button>
-                          } />
-                          <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">
-                            <DialogHeader>
-                              <DialogTitle>Patient Vitals: {patient ? `${patient.first_name} ${patient.last_name} (${patient.patient_id})` : `Patient #${appt.patient_id}`}</DialogTitle>
-                            </DialogHeader>
-                            <VitalsForm appt={appt} onComplete={fetchData} />
-                          </DialogContent>
-                        </Dialog>
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          className="gap-2"
+                          onClick={() => setActiveVitalsAppt(appt)}
+                        >
+                          {user?.role === 'DOCTOR' ? <Stethoscope className="w-4 h-4" /> : <Activity className="w-4 h-4" />}
+                          {user?.role === 'DOCTOR' ? 'Start Consultation' : 'Triage'}
+                        </Button>
                       )}
                       {appt.status === 'CONSULTATION' && user?.role === 'DOCTOR' && (
-                        <Dialog>
-                          <DialogTrigger render={
-                            <Button size="sm" className="gap-2">
-                              <Stethoscope className="w-4 h-4" /> Continue Consultation
-                            </Button>
-                          } />
-                          <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">
-                            <DialogHeader>
-                              <DialogTitle>Consultation: {patient ? `${patient.first_name} ${patient.last_name} (${patient.patient_id})` : `Patient #${appt.patient_id}`}</DialogTitle>
-                            </DialogHeader>
-                            <ConsultationForm appt={appt} onComplete={fetchData} />
-                          </DialogContent>
-                        </Dialog>
+                        <Button 
+                          size="sm" 
+                          className="gap-2"
+                          onClick={() => setActiveConsultationAppt(appt)}
+                        >
+                          <Stethoscope className="w-4 h-4" /> Continue Consultation
+                        </Button>
                       )}
                       {appt.status === 'COMPLETED' && user?.role === 'DOCTOR' && (
-                        <Dialog>
-                          <DialogTrigger render={
-                            <Button size="sm" variant="outline" className="gap-2 border-primary text-primary hover:bg-primary/5">
-                              <FileText className="w-4 h-4" /> Edit Consultation
-                            </Button>
-                          } />
-                          <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">
-                            <DialogHeader>
-                              <DialogTitle>Edit Consultation: {patient ? `${patient.first_name} ${patient.last_name} (${patient.patient_id})` : `Patient #${appt.patient_id}`}</DialogTitle>
-                            </DialogHeader>
-                            <ConsultationForm appt={appt} onComplete={fetchData} />
-                          </DialogContent>
-                        </Dialog>
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          className="gap-2 border-primary text-primary hover:bg-primary/5"
+                          onClick={() => setActiveConsultationAppt(appt)}
+                        >
+                          <FileText className="w-4 h-4" /> Edit Consultation
+                        </Button>
                       )}
                       {appt.status !== 'COMPLETED' && appt.status !== 'CANCELLED' && (user?.role === 'NURSE' || user?.role === 'DOCTOR') && (
                         <Dialog>
@@ -1753,6 +2114,73 @@ export const Clinical = () => {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Full-screen Overlays */}
+      {activeVitalsAppt && (
+        <div className="fixed inset-0 z-40 bg-background flex flex-col overflow-hidden">
+          <div className="flex items-center justify-between p-4 border-b bg-muted/30">
+            <div className="flex items-center gap-3">
+              <Activity className="w-6 h-6 text-primary" />
+              <div>
+                <h3 className="text-xl font-bold">Patient Vitals</h3>
+                <p className="text-sm text-muted-foreground">
+                  {getPatientInfo(activeVitalsAppt.patient_id) ? 
+                    `${getPatientInfo(activeVitalsAppt.patient_id).first_name} ${getPatientInfo(activeVitalsAppt.patient_id).last_name} (${getPatientInfo(activeVitalsAppt.patient_id).patient_id})` : 
+                    `Patient #${activeVitalsAppt.patient_id}`}
+                </p>
+              </div>
+            </div>
+            <Button variant="ghost" size="icon" onClick={() => setActiveVitalsAppt(null)}>
+              <XCircle className="w-6 h-6" />
+            </Button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="max-w-5xl mx-auto">
+              <VitalsForm 
+                appt={activeVitalsAppt} 
+                onComplete={() => {
+                  fetchData();
+                  setActiveVitalsAppt(null);
+                }} 
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeConsultationAppt && (
+        <div className="fixed inset-0 z-40 bg-background flex flex-col overflow-hidden">
+          <div className="flex items-center justify-between p-4 border-b bg-muted/30">
+            <div className="flex items-center gap-3">
+              <Stethoscope className="w-6 h-6 text-primary" />
+              <div>
+                <h3 className="text-xl font-bold">
+                  {activeConsultationAppt.status === 'COMPLETED' ? 'Edit Consultation' : 'Consultation'}
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  {getPatientInfo(activeConsultationAppt.patient_id) ? 
+                    `${getPatientInfo(activeConsultationAppt.patient_id).first_name} ${getPatientInfo(activeConsultationAppt.patient_id).last_name} (${getPatientInfo(activeConsultationAppt.patient_id).patient_id})` : 
+                    `Patient #${activeConsultationAppt.patient_id}`}
+                </p>
+              </div>
+            </div>
+            <Button variant="ghost" size="icon" onClick={() => setActiveConsultationAppt(null)}>
+              <XCircle className="w-6 h-6" />
+            </Button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="max-w-7xl mx-auto">
+              <ConsultationForm 
+                appt={activeConsultationAppt} 
+                onComplete={() => {
+                  fetchData();
+                  setActiveConsultationAppt(null);
+                }} 
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

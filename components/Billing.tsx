@@ -194,7 +194,7 @@ export const Billing = () => {
     }
   };
 
-  const filteredInvoices = invoices.filter(inv => 
+  const filteredInvoices = (Array.isArray(invoices) ? invoices : []).filter(inv => 
     String(inv.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
     String(inv.patient_id || '').toLowerCase().includes(searchQuery.toLowerCase())
   );

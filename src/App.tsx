@@ -11,6 +11,7 @@ import { Pharmacy } from '@/components/Pharmacy';
 import { Billing } from '@/components/Billing';
 import { Reports } from '@/components/Reports';
 import { Finance } from '@/components/Finance';
+import { UserAdmin } from '@/components/UserAdmin';
 import { AuditLogs } from '@/components/AuditLogs';
 import { Login } from '@/components/Login';
 import { Toaster } from '@/components/ui/sonner';
@@ -18,6 +19,12 @@ import { Toaster } from '@/components/ui/sonner';
 export default function App() {
   const { user, token } = useAuthStore();
   const [currentTab, setCurrentTab] = useState('dashboard');
+  const [targetPatientId, setTargetPatientId] = useState<string | null>(null);
+
+  const navigateToPatientChart = (patientId: string) => {
+    setTargetPatientId(patientId);
+    setCurrentTab('patients');
+  };
 
   if (!token || !user) {
     return (
@@ -33,9 +40,9 @@ export default function App() {
       case 'dashboard':
         return <Dashboard />;
       case 'patients':
-        return <Patients />;
+        return <Patients initialPatientId={targetPatientId} onClearInitialPatient={() => setTargetPatientId(null)} />;
       case 'appointments':
-        return <Appointments />;
+        return <Appointments onViewChart={navigateToPatientChart} />;
       case 'clinical':
         return <Clinical />;
       case 'lab':
@@ -50,6 +57,8 @@ export default function App() {
         return <Reports />;
       case 'finance':
         return <Finance />;
+      case 'users':
+        return <UserAdmin />;
       case 'audit':
         return <AuditLogs />;
       default:
