@@ -3,11 +3,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Search, Pill, Clock, CheckCircle2, FileText, AlertCircle, Loader2, Printer, Package, Plus, History, BarChart3, TrendingUp, TrendingDown, Calendar, Download, Receipt, Banknote } from 'lucide-react';
+import { Search, Pill, Clock, CheckCircle2, FileText, AlertCircle, Loader2, Printer, Package, Plus, History, BarChart3, TrendingUp, TrendingDown, Calendar, Download, Receipt, Banknote, Trash2 } from 'lucide-react';
 import axios from 'axios';
 import { useAuthStore } from '@/src/lib/store';
 import { toast } from 'sonner';
@@ -71,8 +71,18 @@ export const Pharmacy = () => {
   });
   const [isSubmittingPrescription, setIsSubmittingPrescription] = useState(false);
 
+  // Receive Stock State
+  const [isReceiveStockModalOpen, setIsReceiveStockModalOpen] = useState(false);
+  const [receiveStockForm, setReceiveStockForm] = useState({
+    invoiceNumber: '',
+    supplier: '',
+    date: new Date().toISOString().split('T')[0],
+    items: [] as any[]
+  });
+  const [isSubmittingReceiveStock, setIsSubmittingReceiveStock] = useState(false);
+
   // Reporting State
-  const [reportType, setReportType] = useState<'inventory' | 'expiring' | 'dispensed'>('inventory');
+  const [reportType, setReportType] = useState<'inventory' | 'expiring' | 'dispensed' | 'low_stock'>('inventory');
   const [reportData, setReportData] = useState<any>(null);
   const [reportLoading, setReportLoading] = useState(false);
   const [dateRange, setDateRange] = useState({
@@ -203,6 +213,44 @@ export const Pharmacy = () => {
     }
   };
 
+  const handleReceiveStock = async () => {
+    if (!receiveStockForm.invoiceNumber || !receiveStockForm.supplier || receiveStockForm.items.length === 0) {
+      toast.error('Please fill in invoice details and add at least one item');
+      return;
+    }
+
+    const invalidItems = receiveStockForm.items.filter(item => 
+      !item.quantity || !item.pricePerUnit || 
+      (item.isNew && (!item.name || !item.dosage)) ||
+      (!item.isNew && !item.inventoryId)
+    );
+
+    if (invalidItems.length > 0) {
+      toast.error('Please fill in all required fields for each item');
+      return;
+    }
+
+    setIsSubmittingReceiveStock(true);
+    try {
+      await axios.post('/api/pharmacy/receive-stock', receiveStockForm, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      toast.success('Stock received and invoice recorded successfully');
+      setIsReceiveStockModalOpen(false);
+      setReceiveStockForm({
+        invoiceNumber: '',
+        supplier: '',
+        date: new Date().toISOString().split('T')[0],
+        items: []
+      });
+      fetchInventory();
+    } catch (err) {
+      toast.error('Failed to receive stock');
+    } finally {
+      setIsSubmittingReceiveStock(false);
+    }
+  };
+
   const handleAddMedication = async () => {
     if (!medicationForm.name || !medicationForm.dosage || !medicationForm.stock || !medicationForm.price_per_unit) {
       toast.error('Please fill in all required fields');
@@ -312,16 +360,28 @@ export const Pharmacy = () => {
     }
   };
 
+  const [dispenseBatchSelections, setDispenseBatchSelections] = useState<Record<number, string>>({});
+
   const updateStatus = async (id: number, status: string) => {
     setUpdatingStatusId(id);
     try {
-      await axios.patch(`/api/pharmacy/prescriptions/${id}/status`, { status }, {
+      const payload: any = { status };
+      if (status === 'DISPENSED' && Object.keys(dispenseBatchSelections).length > 0) {
+        // Find the prescription to map the selections
+        const p = prescriptions.find((p: any) => p.id === id);
+        if (p) {
+          payload.batchNumbers = p.items.map((_: any, idx: number) => dispenseBatchSelections[idx] || null);
+        }
+      }
+
+      await axios.patch(`/api/pharmacy/prescriptions/${id}/status`, payload, {
         headers: { Authorization: `Bearer ${token}` }
       });
       toast.success(`Prescription marked as ${status.toLowerCase()}`);
       fetchPrescriptions();
       if (status === 'DISPENSED') {
         fetchInventory();
+        setDispenseBatchSelections({}); // Clear selections
       }
       if (selectedPrescription?.id === id) {
         setIsDetailModalOpen(false);
@@ -425,11 +485,23 @@ export const Pharmacy = () => {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Medication Name</Label>
-                      <Input 
-                        value={newPrescriptionItemForm.medication_name} 
-                        onChange={(e) => setNewPrescriptionItemForm({...newPrescriptionItemForm, medication_name: e.target.value})}
-                        placeholder="e.g. Amoxicillin"
-                      />
+                      <select
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                        value={newPrescriptionItemForm.medication_name}
+                        onChange={(e) => {
+                          const selectedMed = inventory.find(item => item.name === e.target.value);
+                          setNewPrescriptionItemForm({
+                            ...newPrescriptionItemForm, 
+                            medication_name: e.target.value,
+                            dosage: selectedMed ? selectedMed.dosage : newPrescriptionItemForm.dosage
+                          });
+                        }}
+                      >
+                        <option value="">-- Select Medication --</option>
+                        {Array.from(new Set(inventory.map(item => item.name))).map(name => (
+                          <option key={name as string} value={name as string}>{name as string}</option>
+                        ))}
+                      </select>
                     </div>
                     <div className="space-y-2">
                       <Label>Strength/Dosage</Label>
@@ -690,7 +762,28 @@ export const Pharmacy = () => {
                                               <TableCell>
                                                 <div className="font-medium">{item.medication_name}</div>
                                                 <div className="text-[10px] text-muted-foreground">{item.dosage} • {item.instructions}</div>
-                                                {nearestExpiry && (
+                                                {p.status === 'PENDING' && availableStock.length > 0 && (
+                                                  <div className="mt-2">
+                                                    <select
+                                                      className="flex h-8 w-full rounded-md border border-input bg-background px-3 py-1 text-xs ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                                      value={dispenseBatchSelections[idx] || ''}
+                                                      onChange={(e) => setDispenseBatchSelections(prev => ({ ...prev, [idx]: e.target.value }))}
+                                                    >
+                                                      <option value="">Auto-select (Nearest Expiry)</option>
+                                                      {availableStock.filter(b => b.stock > 0).map(batch => (
+                                                        <option key={batch.id} value={batch.id}>
+                                                          Batch: {batch.id} (Stock: {batch.stock}, Exp: {new Date(batch.expiry_date).toLocaleDateString()})
+                                                        </option>
+                                                      ))}
+                                                    </select>
+                                                  </div>
+                                                )}
+                                                {p.status === 'DISPENSED' && item.dispensed_batches && item.dispensed_batches.length > 0 && (
+                                                  <div className="mt-1 text-[10px] text-muted-foreground">
+                                                    Batches: {item.dispensed_batches.join(', ')}
+                                                  </div>
+                                                )}
+                                                {nearestExpiry && p.status === 'PENDING' && !dispenseBatchSelections[idx] && (
                                                   <div className="mt-1">
                                                     <Badge variant="outline" className={cn(
                                                       "text-[10px] gap-1",
@@ -1001,6 +1094,252 @@ export const Pharmacy = () => {
 
                 {canManageMedications && (
                   <>
+                    <Button size="sm" variant="outline" className="gap-2" onClick={() => setIsReceiveStockModalOpen(true)}>
+                      <FileText className="w-4 h-4" />
+                      Receive Stock (Invoice)
+                    </Button>
+                    <Dialog open={isReceiveStockModalOpen} onOpenChange={setIsReceiveStockModalOpen}>
+                      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                        <DialogHeader>
+                          <DialogTitle>Receive Stock from Invoice</DialogTitle>
+                        </DialogHeader>
+                        <div className="space-y-6 py-4">
+                          <div className="grid grid-cols-3 gap-4">
+                            <div className="space-y-2">
+                              <Label>Invoice Number*</Label>
+                              <Input 
+                                value={receiveStockForm.invoiceNumber} 
+                                onChange={(e) => setReceiveStockForm({...receiveStockForm, invoiceNumber: e.target.value})} 
+                                placeholder="e.g. INV-2026-001"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Supplier*</Label>
+                              <Input 
+                                value={receiveStockForm.supplier} 
+                                onChange={(e) => setReceiveStockForm({...receiveStockForm, supplier: e.target.value})} 
+                                placeholder="e.g. PharmaCorp"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Date*</Label>
+                              <Input 
+                                type="date"
+                                value={receiveStockForm.date} 
+                                onChange={(e) => setReceiveStockForm({...receiveStockForm, date: e.target.value})} 
+                              />
+                            </div>
+                          </div>
+
+                          <div className="space-y-4">
+                            <div className="flex justify-between items-center">
+                              <h3 className="font-semibold">Invoice Items</h3>
+                              <Button 
+                                size="sm" 
+                                onClick={() => setReceiveStockForm({
+                                  ...receiveStockForm, 
+                                  items: [...receiveStockForm.items, { isNew: false, inventoryId: '', quantity: '', pricePerUnit: '', expiryDate: '' }]
+                                })}
+                              >
+                                <Plus className="w-4 h-4 mr-2" /> Add Item
+                              </Button>
+                            </div>
+
+                            {receiveStockForm.items.length === 0 ? (
+                              <div className="text-center py-8 text-muted-foreground border rounded-lg border-dashed">
+                                No items added to this invoice yet.
+                              </div>
+                            ) : (
+                              <div className="space-y-4">
+                                {receiveStockForm.items.map((item, index) => (
+                                  <div key={index} className="p-4 border rounded-lg space-y-4 relative bg-muted/10">
+                                    <Button 
+                                      variant="ghost" 
+                                      size="icon" 
+                                      className="absolute top-2 right-2 text-destructive hover:bg-destructive/10"
+                                      onClick={() => {
+                                        const newItems = [...receiveStockForm.items];
+                                        newItems.splice(index, 1);
+                                        setReceiveStockForm({...receiveStockForm, items: newItems});
+                                      }}
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+
+                                    <div className="flex items-center gap-4">
+                                      <Label className="flex items-center gap-2 cursor-pointer">
+                                        <input 
+                                          type="radio" 
+                                          checked={!item.isNew} 
+                                          onChange={() => {
+                                            const newItems = [...receiveStockForm.items];
+                                            newItems[index] = { isNew: false, inventoryId: '', quantity: '', pricePerUnit: '', expiryDate: '' };
+                                            setReceiveStockForm({...receiveStockForm, items: newItems});
+                                          }}
+                                        />
+                                        Existing Item
+                                      </Label>
+                                      <Label className="flex items-center gap-2 cursor-pointer">
+                                        <input 
+                                          type="radio" 
+                                          checked={item.isNew} 
+                                          onChange={() => {
+                                            const newItems = [...receiveStockForm.items];
+                                            newItems[index] = { isNew: true, name: '', dosage: '', category: '', unit: '', reorderLevel: '', maxStock: '', quantity: '', pricePerUnit: '', expiryDate: '' };
+                                            setReceiveStockForm({...receiveStockForm, items: newItems});
+                                          }}
+                                        />
+                                        New Item
+                                      </Label>
+                                    </div>
+
+                                    {!item.isNew ? (
+                                      <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-2 col-span-2">
+                                          <Label>Select Medication*</Label>
+                                          <select
+                                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                            value={item.inventoryId}
+                                            onChange={(e) => {
+                                              const newItems = [...receiveStockForm.items];
+                                              newItems[index].inventoryId = e.target.value;
+                                              setReceiveStockForm({...receiveStockForm, items: newItems});
+                                            }}
+                                          >
+                                            <option value="">-- Select Medication --</option>
+                                            {inventory.map(inv => (
+                                              <option key={inv.id} value={inv.id}>{inv.name} ({inv.dosage}) - Current Stock: {inv.stock}</option>
+                                            ))}
+                                          </select>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div className="grid grid-cols-3 gap-4">
+                                        <div className="space-y-2">
+                                          <Label>Name*</Label>
+                                          <Input 
+                                            value={item.name} 
+                                            onChange={(e) => {
+                                              const newItems = [...receiveStockForm.items];
+                                              newItems[index].name = e.target.value;
+                                              setReceiveStockForm({...receiveStockForm, items: newItems});
+                                            }} 
+                                          />
+                                        </div>
+                                        <div className="space-y-2">
+                                          <Label>Dosage/Size*</Label>
+                                          <Input 
+                                            value={item.dosage} 
+                                            onChange={(e) => {
+                                              const newItems = [...receiveStockForm.items];
+                                              newItems[index].dosage = e.target.value;
+                                              setReceiveStockForm({...receiveStockForm, items: newItems});
+                                            }} 
+                                          />
+                                        </div>
+                                        <div className="space-y-2">
+                                          <Label>Category</Label>
+                                          <Input 
+                                            value={item.category} 
+                                            onChange={(e) => {
+                                              const newItems = [...receiveStockForm.items];
+                                              newItems[index].category = e.target.value;
+                                              setReceiveStockForm({...receiveStockForm, items: newItems});
+                                            }} 
+                                          />
+                                        </div>
+                                        <div className="space-y-2">
+                                          <Label>Unit</Label>
+                                          <Input 
+                                            value={item.unit} 
+                                            onChange={(e) => {
+                                              const newItems = [...receiveStockForm.items];
+                                              newItems[index].unit = e.target.value;
+                                              setReceiveStockForm({...receiveStockForm, items: newItems});
+                                            }} 
+                                          />
+                                        </div>
+                                        <div className="space-y-2">
+                                          <Label>Reorder Level</Label>
+                                          <Input 
+                                            type="number"
+                                            value={item.reorderLevel} 
+                                            onChange={(e) => {
+                                              const newItems = [...receiveStockForm.items];
+                                              newItems[index].reorderLevel = e.target.value;
+                                              setReceiveStockForm({...receiveStockForm, items: newItems});
+                                            }} 
+                                          />
+                                        </div>
+                                        <div className="space-y-2">
+                                          <Label>Max Stock</Label>
+                                          <Input 
+                                            type="number"
+                                            value={item.maxStock} 
+                                            onChange={(e) => {
+                                              const newItems = [...receiveStockForm.items];
+                                              newItems[index].maxStock = e.target.value;
+                                              setReceiveStockForm({...receiveStockForm, items: newItems});
+                                            }} 
+                                          />
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    <div className="grid grid-cols-3 gap-4 pt-4 border-t">
+                                      <div className="space-y-2">
+                                        <Label>Quantity Received*</Label>
+                                        <Input 
+                                          type="number"
+                                          value={item.quantity} 
+                                          onChange={(e) => {
+                                            const newItems = [...receiveStockForm.items];
+                                            newItems[index].quantity = e.target.value;
+                                            setReceiveStockForm({...receiveStockForm, items: newItems});
+                                          }} 
+                                        />
+                                      </div>
+                                      <div className="space-y-2">
+                                        <Label>Price Per Unit*</Label>
+                                        <Input 
+                                          type="number"
+                                          value={item.pricePerUnit} 
+                                          onChange={(e) => {
+                                            const newItems = [...receiveStockForm.items];
+                                            newItems[index].pricePerUnit = e.target.value;
+                                            setReceiveStockForm({...receiveStockForm, items: newItems});
+                                          }} 
+                                        />
+                                      </div>
+                                      <div className="space-y-2">
+                                        <Label>Expiry Date</Label>
+                                        <Input 
+                                          type="date"
+                                          value={item.expiryDate} 
+                                          onChange={(e) => {
+                                            const newItems = [...receiveStockForm.items];
+                                            newItems[index].expiryDate = e.target.value;
+                                            setReceiveStockForm({...receiveStockForm, items: newItems});
+                                          }} 
+                                        />
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <DialogFooter>
+                          <Button variant="outline" onClick={() => setIsReceiveStockModalOpen(false)}>Cancel</Button>
+                          <Button onClick={handleReceiveStock} disabled={isSubmittingReceiveStock}>
+                            {isSubmittingReceiveStock ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                            Save Invoice & Update Stock
+                          </Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
+
                     <Button size="sm" className="gap-2" onClick={() => {
                       setMedicationForm({
                         name: '', dosage: '', category: '', stock: '', maxStock: '', reorderLevel: '', unit: '', expiry_date: '', price_per_unit: ''
@@ -1283,6 +1622,14 @@ export const Pharmacy = () => {
                     Stock Levels
                   </Button>
                   <Button 
+                    variant={reportType === 'low_stock' ? 'default' : 'ghost'} 
+                    className="w-full justify-start gap-2"
+                    onClick={() => setReportType('low_stock')}
+                  >
+                    <TrendingDown className="w-4 h-4" />
+                    Low Stock
+                  </Button>
+                  <Button 
                     variant={reportType === 'expiring' ? 'default' : 'ghost'} 
                     className="w-full justify-start gap-2"
                     onClick={() => setReportType('expiring')}
@@ -1382,6 +1729,28 @@ export const Pharmacy = () => {
                   </div>
                 )}
 
+                {reportType === 'low_stock' && reportData?.lowStock && (
+                  <Button 
+                    className="w-full gap-2 mt-4" 
+                    variant="outline" 
+                    onClick={() => {
+                      const csvContent = "data:text/csv;charset=utf-8," 
+                        + "Medication Name,Current Stock,Reorder Level,Unit\n"
+                        + reportData.lowStock.map((item: any) => `${item.name} ${item.dosage},${item.stock},${item.reorderLevel},${item.unit}`).join("\n");
+                      const encodedUri = encodeURI(csvContent);
+                      const link = document.createElement("a");
+                      link.setAttribute("href", encodedUri);
+                      link.setAttribute("download", "low_stock_report.csv");
+                      document.body.appendChild(link);
+                      link.click();
+                      document.body.removeChild(link);
+                    }}
+                  >
+                    <Download className="w-4 h-4" />
+                    Download CSV
+                  </Button>
+                )}
+
                 <Button className="w-full gap-2 mt-4" variant="outline" onClick={() => window.print()}>
                   <Printer className="w-4 h-4" />
                   Print Report
@@ -1393,6 +1762,7 @@ export const Pharmacy = () => {
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>
                   {reportType === 'inventory' && "Inventory & Stock Levels"}
+                  {reportType === 'low_stock' && "Low Stock Medications"}
                   {reportType === 'expiring' && "Expiring & Expired Medications"}
                   {reportType === 'dispensed' && "Medications Dispensed Summary"}
                 </CardTitle>
@@ -1485,6 +1855,47 @@ export const Pharmacy = () => {
                           </Table>
                         </div>
                       </>
+                    )}
+
+                    {reportType === 'low_stock' && (
+                      <div className="space-y-4">
+                        <h4 className="font-semibold flex items-center gap-2 text-rose-600">
+                          <AlertCircle className="w-4 h-4" />
+                          Medications Below Reorder Level
+                        </h4>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Medication</TableHead>
+                              <TableHead>Current Stock</TableHead>
+                              <TableHead>Reorder Level</TableHead>
+                              <TableHead>Unit</TableHead>
+                              <TableHead>Status</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {(reportData?.lowStock || []).length === 0 ? (
+                              <TableRow>
+                                <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                                  No low stock items found.
+                                </TableCell>
+                              </TableRow>
+                            ) : (
+                              (reportData?.lowStock || []).map((item: any, i: number) => (
+                                <TableRow key={i}>
+                                  <TableCell className="font-medium">{item.name} {item.dosage}</TableCell>
+                                  <TableCell className="text-rose-600 font-bold">{item.stock}</TableCell>
+                                  <TableCell>{item.reorderLevel}</TableCell>
+                                  <TableCell>{item.unit}</TableCell>
+                                  <TableCell>
+                                    <Badge variant="destructive">REORDER</Badge>
+                                  </TableCell>
+                                </TableRow>
+                              ))
+                            )}
+                          </TableBody>
+                        </Table>
+                      </div>
                     )}
 
                     {reportType === 'expiring' && (

@@ -86,6 +86,14 @@ export const Imaging = () => {
     const formData = new FormData(e.target);
     const data = Object.fromEntries(formData);
 
+    // Handle file upload (mocking it by just taking the file name if a file was selected)
+    const file = formData.get('file') as File;
+    if (file && file.size > 0) {
+      data.file_name = file.name;
+      // In a real app, we would upload the file to a storage service here
+      // and save the URL in the database.
+    }
+
     try {
       await axios.post('/api/imaging/results', {
         ...data,
@@ -361,6 +369,13 @@ export const Imaging = () => {
                                     <div className="space-y-2">
                                       <Label htmlFor={`result-${idx}`}>Conclusion / Impression</Label>
                                       <Input id={`result-${idx}`} name="result_text" placeholder="e.g. Normal chest radiograph" required />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label htmlFor={`file-${idx}`}>Attach Image/Report (Optional)</Label>
+                                      <div className="flex items-center gap-2">
+                                        <Input id={`file-${idx}`} name="file" type="file" accept="image/*,.pdf" className="cursor-pointer" />
+                                      </div>
+                                      <p className="text-xs text-muted-foreground">Upload X-ray image or scanned report</p>
                                     </div>
                                     <div className="flex justify-end">
                                       <Button type="submit" size="sm" className="gap-2">

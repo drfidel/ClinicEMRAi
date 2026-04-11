@@ -6,7 +6,8 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Receipt, CreditCard, Smartphone, Banknote, Search, Plus, Trash2, Edit2, Loader2, X, Printer, CheckCircle2 } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Receipt, CreditCard, Smartphone, Banknote, Search, Plus, Trash2, Edit2, Loader2, X, Printer, CheckCircle2, FileText, Download } from 'lucide-react';
 import axios from 'axios';
 import { useAuthStore } from '@/src/lib/store';
 import { toast } from 'sonner';
@@ -48,6 +49,14 @@ export const Billing = () => {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { token } = useAuthStore();
+
+  const [activeTab, setActiveTab] = useState('invoices');
+  const [reportDateRange, setReportDateRange] = useState({
+    startDate: new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0],
+    endDate: new Date().toISOString().split('T')[0]
+  });
+  const [reportData, setReportData] = useState<any>(null);
+  const [reportLoading, setReportLoading] = useState(false);
 
   const fetchInvoices = async () => {
     try {
@@ -95,12 +104,67 @@ export const Billing = () => {
     }
   };
 
+  const fetchReport = async () => {
+    setReportLoading(true);
+    try {
+      const res = await axios.get(`/api/billing/reports?startDate=${reportDateRange.startDate}&endDate=${reportDateRange.endDate}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setReportData(res.data);
+    } catch (err) {
+      toast.error('Failed to fetch report data');
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchInvoices();
     fetchServices();
     fetchInventory();
     fetchPatients();
   }, [token]);
+
+  useEffect(() => {
+    if (activeTab === 'reports') {
+      fetchReport();
+    }
+  }, [activeTab, reportDateRange.startDate, reportDateRange.endDate, token]);
+
+  const exportReportToCSV = () => {
+    if (!reportData) return;
+
+    let csvContent = "data:text/csv;charset=utf-8,";
+    
+    // Summary Section
+    csvContent += "Financial Summary\n";
+    csvContent += `Total Revenue,${reportData.totalRevenue}\n`;
+    csvContent += `Total Collected,${reportData.totalCollected}\n`;
+    csvContent += `Outstanding Balance,${reportData.outstandingBalance}\n\n`;
+
+    // Income Breakdown
+    csvContent += "Income Breakdown\n";
+    csvContent += "Category,Amount\n";
+    Object.entries(reportData.incomeByCategory || {}).forEach(([cat, amt]) => {
+      csvContent += `"${cat}",${amt}\n`;
+    });
+    csvContent += "\n";
+
+    // Expense Breakdown
+    csvContent += "Expense Breakdown\n";
+    csvContent += "Category,Amount\n";
+    Object.entries(reportData.expenseByCategory || {}).forEach(([cat, amt]) => {
+      csvContent += `"${cat}",${amt}\n`;
+    });
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `financial_report_${reportDateRange.startDate}_to_${reportDateRange.endDate}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const handlePayment = async (id: number, method: string, ref?: string, amount?: number) => {
     try {
@@ -194,9 +258,40 @@ export const Billing = () => {
     }
   };
 
+  const handleCombinedReceipt = (encounterId: number) => {
+    const encounterInvoices = invoices.filter(inv => inv.encounter_id === encounterId);
+    if (encounterInvoices.length === 0) return;
+
+    const combinedItems = encounterInvoices.flatMap(inv => inv.items || []);
+    const totalAmount = encounterInvoices.reduce((sum, inv) => sum + (inv.amount || 0), 0);
+    const totalPaid = encounterInvoices.reduce((sum, inv) => sum + (inv.paid_amount || 0), 0);
+    
+    let combinedStatus = 'PENDING';
+    if (totalPaid >= totalAmount) combinedStatus = 'PAID';
+    else if (totalPaid > 0) combinedStatus = 'PARTIAL';
+
+    const combinedInvoice = {
+      id: `CMB-${encounterId}`,
+      isCombined: true,
+      encounter_id: encounterId,
+      date: encounterInvoices[0].date,
+      name: encounterInvoices[0].name,
+      patient_id: encounterInvoices[0].patient_id,
+      amount: totalAmount,
+      paid_amount: totalPaid,
+      status: combinedStatus,
+      items: combinedItems
+    };
+
+    setSelectedInvoiceForReceipt(combinedInvoice);
+    setIsReceiptModalOpen(true);
+  };
+
   const filteredInvoices = (Array.isArray(invoices) ? invoices : []).filter(inv => 
     String(inv.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-    String(inv.patient_id || '').toLowerCase().includes(searchQuery.toLowerCase())
+    String(inv.patient_id || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    String(inv.encounter_id || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    String(inv.id || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const getStatusBadge = (status: string) => {
@@ -244,12 +339,46 @@ export const Billing = () => {
           <h2 className="text-3xl font-bold tracking-tight">Billing & Payments</h2>
           <p className="text-muted-foreground">Manage invoices and collect payments</p>
         </div>
-        <Dialog open={isNewInvoiceModalOpen} onOpenChange={setIsNewInvoiceModalOpen}>
-          <DialogTrigger render={
-            <Button className="gap-2">
-              <Plus className="w-4 h-4" /> New Sale (POS)
-            </Button>
-          } />
+      </div>
+
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="grid w-full grid-cols-2 max-w-[400px]">
+          <TabsTrigger value="invoices">Invoices & Payments</TabsTrigger>
+          <TabsTrigger value="reports">Financial Reports</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="invoices" className="space-y-6 mt-6">
+          <div className="flex items-center justify-between">
+            <div className="flex gap-4">
+              <Card className="w-64">
+                <CardContent className="p-4 flex items-center gap-4">
+                  <div className="p-3 bg-rose-100 text-rose-600 rounded-full">
+                    <Banknote className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground font-medium">Total Pending</p>
+                    <h3 className="text-2xl font-bold">{totalPending.toLocaleString()} UGX</h3>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="w-64">
+                <CardContent className="p-4 flex items-center gap-4">
+                  <div className="p-3 bg-emerald-100 text-emerald-600 rounded-full">
+                    <Receipt className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground font-medium">Collected Today</p>
+                    <h3 className="text-2xl font-bold">{totalCollectedToday.toLocaleString()} UGX</h3>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+            <Dialog open={isNewInvoiceModalOpen} onOpenChange={setIsNewInvoiceModalOpen}>
+              <DialogTrigger render={
+                <Button className="gap-2">
+                  <Plus className="w-4 h-4" /> New Sale (POS)
+                </Button>
+              } />
           <DialogContent className="max-w-lg">
             <DialogHeader>
               <DialogTitle>Create New Sale / Invoice</DialogTitle>
@@ -490,40 +619,13 @@ export const Billing = () => {
         </Dialog>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card className="bg-primary text-primary-foreground">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Pending Collections</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{totalPending.toLocaleString()} UGX</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Total Collected</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{totalCollectedToday.toLocaleString()} UGX</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Invoices Count</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{invoices.length}</div>
-          </CardContent>
-        </Card>
-      </div>
-
       <Card>
         <CardHeader>
           <div className="flex items-center gap-4">
             <div className="relative flex-1">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input 
-                placeholder="Search invoice or patient..." 
+                placeholder="Search invoice, patient, or encounter ID..." 
                 className="pl-8" 
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -565,6 +667,16 @@ export const Billing = () => {
                   <TableCell>{inv.date}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
+                      {inv.encounter_id && (
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          className="gap-2"
+                          onClick={() => handleCombinedReceipt(inv.encounter_id)}
+                        >
+                          <Printer className="w-4 h-4" /> Combined Receipt
+                        </Button>
+                      )}
                       <Button 
                         size="sm" 
                         variant="outline" 
@@ -1027,6 +1139,12 @@ export const Billing = () => {
                 <div className="text-right font-mono">RCP-{selectedInvoiceForReceipt.id.toString().padStart(5, '0')}</div>
                 <div className="text-muted-foreground">Invoice No:</div>
                 <div className="text-right font-mono">INV-{selectedInvoiceForReceipt.id.toString().padStart(5, '0')}</div>
+                {selectedInvoiceForReceipt.encounter_id && (
+                  <>
+                    <div className="text-muted-foreground">Encounter ID:</div>
+                    <div className="text-right font-mono">ENC-{selectedInvoiceForReceipt.encounter_id.toString().padStart(5, '0')}</div>
+                  </>
+                )}
                 <div className="text-muted-foreground">Date:</div>
                 <div className="text-right">{selectedInvoiceForReceipt.date}</div>
                 <div className="text-muted-foreground">Patient:</div>
@@ -1081,6 +1199,108 @@ export const Billing = () => {
           )}
         </DialogContent>
       </Dialog>
+      </TabsContent>
+
+      <TabsContent value="reports" className="space-y-6 mt-6">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle>Financial Reports</CardTitle>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Label className="text-sm">From</Label>
+                <Input 
+                  type="date" 
+                  className="w-auto h-8 text-sm"
+                  value={reportDateRange.startDate}
+                  onChange={(e) => setReportDateRange({ ...reportDateRange, startDate: e.target.value })}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <Label className="text-sm">To</Label>
+                <Input 
+                  type="date" 
+                  className="w-auto h-8 text-sm"
+                  value={reportDateRange.endDate}
+                  onChange={(e) => setReportDateRange({ ...reportDateRange, endDate: e.target.value })}
+                />
+              </div>
+              <Button size="sm" variant="outline" onClick={exportReportToCSV} disabled={!reportData || reportLoading} className="gap-2">
+                <Download className="w-4 h-4" /> Export CSV
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {reportLoading ? (
+              <div className="flex justify-center py-12">
+                <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+              </div>
+            ) : reportData ? (
+              <div className="space-y-8 mt-4">
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="p-4 bg-muted/30 rounded-lg border">
+                    <p className="text-sm text-muted-foreground font-medium">Total Revenue</p>
+                    <h3 className="text-2xl font-bold mt-1">{reportData.totalRevenue?.toLocaleString()} UGX</h3>
+                  </div>
+                  <div className="p-4 bg-emerald-50 rounded-lg border border-emerald-100">
+                    <p className="text-sm text-emerald-600 font-medium">Total Collected</p>
+                    <h3 className="text-2xl font-bold mt-1 text-emerald-700">{reportData.totalCollected?.toLocaleString()} UGX</h3>
+                  </div>
+                  <div className="p-4 bg-rose-50 rounded-lg border border-rose-100">
+                    <p className="text-sm text-rose-600 font-medium">Outstanding Balance</p>
+                    <h3 className="text-2xl font-bold mt-1 text-rose-700">{reportData.outstandingBalance?.toLocaleString()} UGX</h3>
+                  </div>
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-8">
+                  <div>
+                    <h4 className="font-semibold mb-4 flex items-center gap-2">
+                      <Banknote className="w-4 h-4 text-emerald-600" />
+                      Income Breakdown
+                    </h4>
+                    <div className="space-y-3">
+                      {Object.entries(reportData.incomeByCategory || {}).map(([category, amount]: [string, any]) => (
+                        <div key={category} className="flex justify-between items-center p-3 bg-muted/20 rounded-md border text-sm">
+                          <span className="font-medium">{category}</span>
+                          <span className="font-bold">{amount.toLocaleString()} UGX</span>
+                        </div>
+                      ))}
+                      {Object.keys(reportData.incomeByCategory || {}).length === 0 && (
+                        <div className="text-sm text-muted-foreground text-center p-4 border rounded-md border-dashed">
+                          No income data for this period
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold mb-4 flex items-center gap-2">
+                      <Receipt className="w-4 h-4 text-rose-600" />
+                      Expense Breakdown
+                    </h4>
+                    <div className="space-y-3">
+                      {Object.entries(reportData.expenseByCategory || {}).map(([category, amount]: [string, any]) => (
+                        <div key={category} className="flex justify-between items-center p-3 bg-muted/20 rounded-md border text-sm">
+                          <span className="font-medium">{category}</span>
+                          <span className="font-bold">{amount.toLocaleString()} UGX</span>
+                        </div>
+                      ))}
+                      {Object.keys(reportData.expenseByCategory || {}).length === 0 && (
+                        <div className="text-sm text-muted-foreground text-center p-4 border rounded-md border-dashed">
+                          No expense data for this period
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-12 text-muted-foreground">
+                No report data available
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </TabsContent>
+      </Tabs>
     </div>
   );
 };

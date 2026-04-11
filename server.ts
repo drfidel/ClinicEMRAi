@@ -295,6 +295,14 @@ async function startServer() {
   });
 
   // --- User Administration Routes ---
+  app.get('/api/staff', authenticateToken, (req: any, res) => {
+    // Return only doctors and nurses for assignment
+    const staff = mockDb.users
+      .filter(u => ['DOCTOR', 'NURSE'].includes(u.role))
+      .map(({ passwordHash, ...u }) => u);
+    res.json(staff);
+  });
+
   app.get('/api/users', authenticateToken, (req: any, res) => {
     if (req.user.role !== 'ADMIN') return res.sendStatus(403);
     // Exclude password hashes
@@ -634,11 +642,13 @@ async function startServer() {
 
   // --- Patient Encounters ---
   app.get('/api/encounters/:patient_id', authenticateToken, (req, res) => {
-    const encounters = mockDb.encounters.filter((e: any) => e.patient_id === req.params.patient_id);
+    const patientId = Number(req.params.patient_id) || req.params.patient_id;
+    const encounters = mockDb.encounters.filter((e: any) => e.patient_id == patientId);
     // Join with vitals
     const joinedEncounters = encounters.map((e: any) => ({
       ...e,
       vitals: mockDb.vitals.find((v: any) => v.id === e.vitals_id),
+      prescriptions: mockDb.pharmacy_prescriptions.filter((p: any) => p.encounter_id === e.id).flatMap((p: any) => p.items || []),
       lab_results: mockDb.lab_results.filter((r: any) => r.encounter_id === e.id),
       imaging_results: mockDb.imaging_results.filter((r: any) => r.encounter_id === e.id)
     }));
@@ -966,6 +976,58 @@ async function startServer() {
     res.json(mockDb.invoices);
   });
 
+  app.get('/api/billing/reports', authenticateToken, (req, res) => {
+    const { startDate, endDate } = req.query;
+    
+    // Filter invoices by date
+    const filteredInvoices = mockDb.invoices.filter((inv: any) => {
+      const invDate = inv.date;
+      return invDate >= startDate && invDate <= endDate && inv.status !== 'CANCELLED';
+    });
+
+    // Filter expenses by date
+    const filteredExpenses = mockDb.expenses.filter((exp: any) => {
+      const expDate = exp.date;
+      return expDate >= startDate && expDate <= endDate && exp.status !== 'CANCELLED';
+    });
+
+    let totalRevenue = 0;
+    let totalCollected = 0;
+    const incomeByCategory: Record<string, number> = {};
+    const expenseByCategory: Record<string, number> = {};
+
+    filteredInvoices.forEach((inv: any) => {
+      totalRevenue += inv.amount;
+      totalCollected += inv.paid_amount || 0;
+      
+      // Try to categorize income based on items
+      inv.items.forEach((item: any) => {
+        // Simple categorization logic based on description keywords
+        let category = 'Other Income';
+        const desc = item.description.toLowerCase();
+        if (desc.includes('consultation')) category = 'Consultation';
+        else if (desc.includes('lab') || desc.includes('test')) category = 'Laboratory';
+        else if (desc.includes('imaging') || desc.includes('x-ray') || desc.includes('scan')) category = 'Imaging';
+        else if (desc.includes('medication') || desc.includes('pharmacy')) category = 'Pharmacy';
+        else if (desc.includes('fee')) category = 'Service Fees';
+
+        incomeByCategory[category] = (incomeByCategory[category] || 0) + Number(item.amount);
+      });
+    });
+
+    filteredExpenses.forEach((exp: any) => {
+      expenseByCategory[exp.category] = (expenseByCategory[exp.category] || 0) + Number(exp.amount);
+    });
+
+    res.json({
+      totalRevenue,
+      totalCollected,
+      outstandingBalance: totalRevenue - totalCollected,
+      incomeByCategory,
+      expenseByCategory
+    });
+  });
+
   app.get('/api/billing/services', authenticateToken, (req, res) => {
     res.json(mockDb.billable_services);
   });
@@ -1113,7 +1175,7 @@ async function startServer() {
 
   app.patch('/api/pharmacy/prescriptions/:id/status', authenticateToken, (req, res) => {
     const id = Number(req.params.id);
-    const { status } = req.body;
+    const { status, batchNumbers } = req.body;
     
     const index = mockDb.pharmacy_prescriptions.findIndex((p: any) => p.id === id);
     if (index !== -1) {
@@ -1123,16 +1185,25 @@ async function startServer() {
         let totalPrice = 0;
         const invoiceItems: any[] = [];
 
-        // Logic to decrement stock from nearest expiry batches
-        prescription.items.forEach((item: any) => {
+        // Logic to decrement stock from nearest expiry batches or specified batches
+        prescription.items.forEach((item: any, itemIdx: number) => {
           let remainingToDispense = Number(item.quantity || 1);
           const medicationName = item.medication_name;
+          const specifiedBatch = batchNumbers ? batchNumbers[itemIdx] : null;
           
-          const batches = mockDb.inventory
+          let batches = mockDb.inventory
             .filter((i: any) => i.name === medicationName && i.stock > 0)
             .sort((a: any, b: any) => new Date(a.expiry_date).getTime() - new Date(b.expiry_date).getTime());
+            
+          if (specifiedBatch) {
+             const specificBatchObj = batches.find((b: any) => b.id === specifiedBatch || b.batch_number === specifiedBatch);
+             if (specificBatchObj) {
+                 batches = [specificBatchObj, ...batches.filter((b: any) => b.id !== specificBatchObj.id)];
+             }
+          }
           
           let itemTotalPrice = 0;
+          let dispensedBatches = [];
           
           for (const batch of batches) {
             if (remainingToDispense <= 0) break;
@@ -1140,6 +1211,8 @@ async function startServer() {
             const dispenseFromBatch = Math.min(batch.stock, remainingToDispense);
             batch.stock -= dispenseFromBatch;
             remainingToDispense -= dispenseFromBatch;
+            
+            dispensedBatches.push(batch.id);
             
             const historyEntry = {
               id: mockDb.stock_history.length + 1,
@@ -1160,6 +1233,7 @@ async function startServer() {
           }
           
           item.dispensed_price = itemTotalPrice;
+          item.dispensed_batches = dispensedBatches;
           totalPrice += itemTotalPrice;
           invoiceItems.push({
             description: `${medicationName} (${item.dosage})`,
@@ -1223,6 +1297,19 @@ async function startServer() {
       category: item.category
     }));
     res.json({ stockLevels, lowStock });
+  });
+
+  app.get('/api/pharmacy/reports/low_stock', authenticateToken, (req, res) => {
+    const lowStock = mockDb.inventory
+      .filter((item: any) => item.stock <= item.reorderLevel)
+      .map((item: any) => ({
+        name: item.name,
+        dosage: item.dosage,
+        stock: item.stock,
+        reorderLevel: item.reorderLevel,
+        unit: item.unit
+      }));
+    res.json({ lowStock });
   });
 
   app.get('/api/pharmacy/reports/expiring', authenticateToken, (req, res) => {
@@ -1372,6 +1459,68 @@ async function startServer() {
     const { id } = req.params;
     const history = mockDb.stock_history.filter((h: any) => h.inventory_id === id);
     res.json(history);
+  });
+
+  app.post('/api/pharmacy/receive-stock', authenticateToken, (req, res) => {
+    const { invoiceNumber, supplier, date, items } = req.body;
+    let totalAmount = 0;
+
+    items.forEach((item: any) => {
+      totalAmount += (item.quantity * item.pricePerUnit);
+      
+      let inventoryId = item.inventoryId;
+      
+      if (item.isNew) {
+        const newMedication = {
+          id: `med_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+          name: item.name,
+          dosage: item.dosage,
+          category: item.category,
+          stock: Number(item.quantity),
+          maxStock: Number(item.maxStock || 1000),
+          reorderLevel: Number(item.reorderLevel || 100),
+          unit: item.unit,
+          expiry_date: item.expiryDate,
+          price_per_unit: Number(item.pricePerUnit)
+        };
+        mockDb.inventory.push(newMedication as never);
+        inventoryId = newMedication.id;
+        
+        logAction((req as any).user, 'MEDICATION_ADDED', `Added new medication from invoice ${invoiceNumber}: ${item.name} (${item.dosage})`);
+      } else {
+        const existingItem = mockDb.inventory.find((inv: any) => inv.id === inventoryId);
+        if (existingItem) {
+          existingItem.stock += Number(item.quantity);
+          if (item.expiryDate) existingItem.expiry_date = item.expiryDate;
+          if (item.pricePerUnit) existingItem.price_per_unit = Number(item.pricePerUnit);
+        }
+      }
+
+      const historyEntry = {
+        id: mockDb.stock_history.length + 1,
+        inventory_id: inventoryId,
+        type: 'ADD',
+        quantity: Number(item.quantity),
+        reason: `Received from supplier ${supplier} (Invoice: ${invoiceNumber})`,
+        user_name: (req as any).user.fullName || (req as any).user.username,
+        created_at: new Date().toISOString()
+      };
+      mockDb.stock_history.push(historyEntry as never);
+    });
+
+    const expense = {
+      id: mockDb.expenses.length + 1,
+      category: 'Medical Supplies',
+      amount: totalAmount,
+      description: `Purchase Invoice ${invoiceNumber} from ${supplier}`,
+      date: date || new Date().toISOString().split('T')[0],
+      payment_method: 'Pending',
+      created_at: new Date().toISOString()
+    };
+    mockDb.expenses.push(expense as never);
+    logAction((req as any).user, 'EXPENSE_RECORDED', `Recorded purchase invoice expense: ${expense.amount} UGX`);
+
+    res.status(201).json({ message: 'Stock received and invoice recorded successfully' });
   });
 
   app.post('/api/pharmacy/inventory', authenticateToken, (req, res) => {
@@ -1596,11 +1745,44 @@ async function startServer() {
     const expense = {
       ...req.body,
       id: mockDb.expenses.length + 1,
+      status: 'ACTIVE',
       created_at: new Date().toISOString()
     };
     mockDb.expenses.push(expense as never);
     logAction((req as any).user, 'EXPENSE_RECORDED', `Recorded expense: ${expense.category} - ${expense.amount} UGX`);
     res.status(201).json(expense);
+  });
+
+  app.patch('/api/finance/expenses/:id', authenticateToken, (req, res) => {
+    const id = Number(req.params.id);
+    const updates = req.body;
+    const expense = mockDb.expenses.find((exp: any) => exp.id === id);
+    
+    if (expense) {
+      Object.assign(expense, updates);
+      logAction((req as any).user, 'EXPENSE_UPDATED', `Updated expense ID ${id}`);
+      res.json(expense);
+    } else {
+      res.status(404).json({ message: 'Expense not found' });
+    }
+  });
+
+  app.patch('/api/finance/expenses/:id/cancel', authenticateToken, (req, res) => {
+    const id = Number(req.params.id);
+    const { reason } = req.body;
+    const expense = mockDb.expenses.find((exp: any) => exp.id === id);
+    
+    if (expense) {
+      (expense as any).status = 'CANCELLED';
+      (expense as any).cancellation_reason = reason;
+      (expense as any).cancelled_at = new Date().toISOString();
+      (expense as any).cancelled_by = (req as any).user.fullName || (req as any).user.username;
+      
+      logAction((req as any).user, 'EXPENSE_CANCELLED', `Cancelled expense ID ${id}. Reason: ${reason}`);
+      res.json(expense);
+    } else {
+      res.status(404).json({ message: 'Expense not found' });
+    }
   });
 
   app.get('/api/finance/cashbook', authenticateToken, (req, res) => {
@@ -1616,7 +1798,9 @@ async function startServer() {
       }))
     );
 
-    const outflows = mockDb.expenses.map((exp: any) => ({
+    const outflows = mockDb.expenses
+      .filter((exp: any) => exp.status !== 'CANCELLED')
+      .map((exp: any) => ({
       date: exp.date,
       description: exp.description,
       type: 'OUTFLOW',
@@ -1642,7 +1826,9 @@ async function startServer() {
 
     // Group expenses by category
     const expenseByCategory: any = {};
-    mockDb.expenses.forEach((exp: any) => {
+    mockDb.expenses
+      .filter((exp: any) => exp.status !== 'CANCELLED')
+      .forEach((exp: any) => {
       expenseByCategory[exp.category] = (expenseByCategory[exp.category] || 0) + exp.amount;
     });
 
@@ -1656,6 +1842,62 @@ async function startServer() {
       totalExpenses,
       netProfit: totalIncome - totalExpenses
     });
+  });
+
+  app.post('/api/finance/custom-report', authenticateToken, (req, res) => {
+    const { startDate, endDate, categoryFilter, metrics } = req.body;
+    
+    // Filter expenses
+    let filteredExpenses = mockDb.expenses.filter((exp: any) => {
+      const expDate = exp.date;
+      const dateMatch = expDate >= startDate && expDate <= endDate;
+      const categoryMatch = categoryFilter === 'all' || exp.category === categoryFilter;
+      return dateMatch && categoryMatch && exp.status !== 'CANCELLED';
+    });
+
+    // Filter income (from invoices)
+    let filteredInvoices = mockDb.invoices.filter((inv: any) => {
+      const invDate = inv.date;
+      return invDate >= startDate && invDate <= endDate && inv.status !== 'CANCELLED';
+    });
+
+    const report: any = {};
+
+    if (metrics.incomeByService) {
+      const incomeByService: any = {};
+      filteredInvoices.forEach((inv: any) => {
+        inv.items.forEach((item: any) => {
+          let category = 'Medical Service Income';
+          if (item.description.toLowerCase().includes('medication') || item.description.toLowerCase().includes('pharmacy')) {
+            category = 'Pharmacy Income';
+          } else if (item.description.toLowerCase().includes('lab')) {
+            category = 'Laboratory Income';
+          } else if (item.description.toLowerCase().includes('imaging') || item.description.toLowerCase().includes('x-ray')) {
+            category = 'Imaging Income';
+          }
+          incomeByService[category] = (incomeByService[category] || 0) + Number(item.amount);
+        });
+      });
+      report.incomeByService = incomeByService;
+      report.totalIncome = Object.values(incomeByService).reduce((a: any, b: any) => a + b, 0);
+    }
+
+    if (metrics.expensesByCategory) {
+      const expensesByCategory: any = {};
+      filteredExpenses.forEach((exp: any) => {
+        expensesByCategory[exp.category] = (expensesByCategory[exp.category] || 0) + Number(exp.amount);
+      });
+      report.expensesByCategory = expensesByCategory;
+      report.totalExpenses = Object.values(expensesByCategory).reduce((a: any, b: any) => a + b, 0);
+    }
+
+    if (metrics.netProfit) {
+      const totalInc = report.totalIncome || 0;
+      const totalExp = report.totalExpenses || 0;
+      report.netProfit = totalInc - totalExp;
+    }
+
+    res.json(report);
   });
 
   app.get('/api/finance/accounts', authenticateToken, (req, res) => {

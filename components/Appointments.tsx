@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Calendar as CalendarIcon, Plus, Search, Clock, User, FileText, Loader2, List, ChevronLeft, ChevronRight, RefreshCcw } from 'lucide-react';
+import { Calendar as CalendarIcon, Plus, Search, Clock, User, FileText, Loader2, List, ChevronLeft, ChevronRight, RefreshCcw, Activity } from 'lucide-react';
 import axios from 'axios';
 import { useAuthStore } from '@/src/lib/store';
 import { toast } from 'sonner';
@@ -17,24 +17,29 @@ import { cn } from '@/lib/utils';
 export const Appointments = ({ onViewChart }: { onViewChart?: (patientId: string) => void }) => {
   const [appointments, setAppointments] = useState<any[]>([]);
   const [patients, setPatients] = useState<any[]>([]);
+  const [staff, setStaff] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isTriageModalOpen, setIsTriageModalOpen] = useState(false);
+  const [isSubmittingTriage, setIsSubmittingTriage] = useState(false);
   const [editingAppointment, setEditingAppointment] = useState<any>(null);
   const [isRecurring, setIsRecurring] = useState(false);
-  const { token } = useAuthStore();
+  const { token, user } = useAuthStore();
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [apptsRes, patientsRes] = await Promise.all([
+      const [apptsRes, patientsRes, staffRes] = await Promise.all([
         axios.get('/api/appointments', { headers: { Authorization: `Bearer ${token}` } }),
-        axios.get('/api/patients', { headers: { Authorization: `Bearer ${token}` } })
+        axios.get('/api/patients', { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get('/api/staff', { headers: { Authorization: `Bearer ${token}` } })
       ]);
       setAppointments(apptsRes.data);
       setPatients(patientsRes.data);
+      setStaff(staffRes.data);
     } catch (err) {
       toast.error('Failed to fetch data');
     } finally {
@@ -79,6 +84,46 @@ export const Appointments = ({ onViewChart }: { onViewChart?: (patientId: string
       fetchData();
     } catch (err) {
       toast.error(editingAppointment ? 'Failed to update appointment' : 'Failed to schedule appointment');
+    }
+  };
+
+  const handleTriageSubmit = async (e: any) => {
+    e.preventDefault();
+    setIsSubmittingTriage(true);
+    const formData = new FormData(e.target);
+    const data = Object.fromEntries(formData);
+    
+    const appointmentId = parseInt(data.appointment_id as string);
+    const appt = appointments.find(a => a.id === appointmentId);
+    
+    if (!appt) {
+      toast.error('Appointment not found');
+      setIsSubmittingTriage(false);
+      return;
+    }
+
+    const payload = {
+      appointment_id: appointmentId,
+      patient_id: appt.patient_id,
+      temperature: data.temperature ? parseFloat(data.temperature as string) : null,
+      blood_pressure: data.blood_pressure,
+      pulse: data.pulse ? parseInt(data.pulse as string) : null,
+      spo2: data.spo2 ? parseInt(data.spo2 as string) : null,
+      weight: data.weight ? parseFloat(data.weight as string) : null,
+      height: data.height ? parseFloat(data.height as string) : null,
+    };
+
+    try {
+      await axios.post('/api/vitals', payload, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      toast.success('Vitals captured and patient moved to consultation');
+      setIsTriageModalOpen(false);
+      fetchData();
+    } catch (err) {
+      toast.error('Failed to save vitals');
+    } finally {
+      setIsSubmittingTriage(false);
     }
   };
 
@@ -183,7 +228,14 @@ export const Appointments = ({ onViewChart }: { onViewChart?: (patientId: string
                           <span className="font-bold">{appt.appointment_time}</span>
                           {appt.recurring_group_id && <RefreshCcw className="w-2 h-2 text-primary" />}
                         </div>
-                        <div className="truncate">{patients.find(p => p.id === appt.patient_id)?.fullName}</div>
+                        <div className="flex items-center justify-between gap-1">
+                          <div className="truncate">{patients.find(p => p.id === appt.patient_id)?.fullName}</div>
+                          {appt.assigned_to && (
+                            <div className="w-3 h-3 rounded-full bg-primary/20 flex items-center justify-center text-[6px] font-bold shrink-0" title={`Assigned to: ${staff.find(s => s.id === parseInt(appt.assigned_to))?.fullName}`}>
+                              {staff.find(s => s.id === parseInt(appt.assigned_to))?.fullName?.charAt(0)}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
@@ -270,6 +322,84 @@ export const Appointments = ({ onViewChart }: { onViewChart?: (patientId: string
               <CalendarIcon className="w-4 h-4" /> Calendar
             </Button>
           </div>
+          {user?.role === 'NURSE' && (
+            <Dialog open={isTriageModalOpen} onOpenChange={setIsTriageModalOpen}>
+              <DialogTrigger render={
+                <Button variant="outline" className="gap-2">
+                  <Activity className="w-4 h-4" /> Start Triage
+                </Button>
+              } />
+              <DialogContent className="sm:max-w-[500px]">
+                <DialogHeader>
+                  <DialogTitle>Capture Patient Vitals</DialogTitle>
+                </DialogHeader>
+                <form onSubmit={handleTriageSubmit} className="space-y-4 py-4">
+                  <div className="space-y-2">
+                    <Label>Select Appointment (Waiting)</Label>
+                    {appointments.filter(a => a.status === 'WAITING').length === 0 ? (
+                      <div className="flex items-center justify-between p-3 border rounded-md bg-muted/20 text-sm text-muted-foreground">
+                        <div className="flex items-center gap-2">
+                          <CalendarIcon className="w-4 h-4" />
+                          <span>No waiting appointments</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <select 
+                        name="appointment_id" 
+                        required 
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <option value="">Choose an appointment...</option>
+                        {appointments
+                          .filter(a => a.status === 'WAITING')
+                          .map(appt => {
+                            const patient = patients.find(p => p.id === appt.patient_id);
+                            return (
+                              <option key={appt.id} value={appt.id}>
+                                {patient?.fullName} - {appt.appointment_time} ({appt.reason})
+                              </option>
+                            );
+                          })}
+                      </select>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Temperature (°C)</Label>
+                      <Input name="temperature" type="number" step="0.1" placeholder="36.5" required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Blood Pressure (mmHg)</Label>
+                      <Input name="blood_pressure" placeholder="120/80" required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Pulse (bpm)</Label>
+                      <Input name="pulse" type="number" placeholder="72" required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>SPO2 (%)</Label>
+                      <Input name="spo2" type="number" placeholder="98" required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Weight (kg)</Label>
+                      <Input name="weight" type="number" step="0.1" placeholder="70.0" required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Height (cm)</Label>
+                      <Input name="height" type="number" placeholder="170" required />
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2 pt-4">
+                    <Button type="button" variant="outline" onClick={() => setIsTriageModalOpen(false)}>Cancel</Button>
+                    <Button type="submit" disabled={isSubmittingTriage}>
+                      {isSubmittingTriage ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                      Save Vitals
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          )}
           <Dialog open={isModalOpen} onOpenChange={(open) => {
           setIsModalOpen(open);
           if (!open) {
@@ -292,17 +422,27 @@ export const Appointments = ({ onViewChart }: { onViewChart?: (patientId: string
             <form key={editingAppointment?.id || 'new'} onSubmit={handleSchedule} className="space-y-4 py-4">
               <div className="space-y-2">
                 <Label>Select Patient</Label>
-                <select 
-                  name="patient_id" 
-                  required 
-                  defaultValue={editingAppointment?.patient_id || ""}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <option value="">Choose a patient...</option>
-                  {patients.map(p => (
-                    <option key={p.id} value={p.id}>{p.fullName} ({p.patient_id})</option>
-                  ))}
-                </select>
+                {patients.length === 0 ? (
+                  <div className="flex items-center justify-between p-3 border rounded-md bg-muted/20 text-sm text-muted-foreground">
+                    <div className="flex items-center gap-2">
+                      <User className="w-4 h-4" />
+                      <span>No patients available</span>
+                    </div>
+                    <span className="text-xs italic">Please add a patient first</span>
+                  </div>
+                ) : (
+                  <select 
+                    name="patient_id" 
+                    required 
+                    defaultValue={editingAppointment?.patient_id || ""}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <option value="">Choose a patient...</option>
+                    {patients.map(p => (
+                      <option key={p.id} value={p.id}>{p.fullName} ({p.patient_id})</option>
+                    ))}
+                  </select>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -332,6 +472,28 @@ export const Appointments = ({ onViewChart }: { onViewChart?: (patientId: string
                   required 
                   defaultValue={editingAppointment?.reason || ""}
                 />
+              </div>
+              <div className="space-y-2">
+                <Label>Assign To (Doctor/Nurse)</Label>
+                {staff.length === 0 ? (
+                  <div className="flex items-center justify-between p-3 border rounded-md bg-muted/20 text-sm text-muted-foreground">
+                    <div className="flex items-center gap-2">
+                      <User className="w-4 h-4" />
+                      <span>No staff available</span>
+                    </div>
+                  </div>
+                ) : (
+                  <select 
+                    name="assigned_to" 
+                    defaultValue={editingAppointment?.assigned_to || ""}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <option value="">Unassigned</option>
+                    {staff.map(s => (
+                      <option key={s.id} value={s.id}>{s.fullName} ({s.role})</option>
+                    ))}
+                  </select>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>Notes (Optional)</Label>
@@ -425,6 +587,7 @@ export const Appointments = ({ onViewChart }: { onViewChart?: (patientId: string
                   <TableHead>Patient</TableHead>
                   <TableHead>Date & Time</TableHead>
                   <TableHead>Reason</TableHead>
+                  <TableHead>Assignee</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Action</TableHead>
                 </TableRow>
@@ -432,8 +595,27 @@ export const Appointments = ({ onViewChart }: { onViewChart?: (patientId: string
               <TableBody>
                 {filteredAppointments.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">
-                      No appointments found
+                    <TableCell colSpan={6} className="h-48 text-center">
+                      <div className="flex flex-col items-center justify-center text-muted-foreground">
+                        <CalendarIcon className="w-10 h-10 mb-4 text-muted-foreground/50" />
+                        <p className="text-lg font-medium text-foreground">No appointments found</p>
+                        <p className="text-sm mt-1">
+                          {searchTerm ? "Try adjusting your search query." : "There are no appointments scheduled yet."}
+                        </p>
+                        {!searchTerm && (
+                          <Button 
+                            variant="outline" 
+                            className="mt-4 gap-2"
+                            onClick={() => {
+                              setEditingAppointment(null);
+                              setIsRecurring(false);
+                              setIsModalOpen(true);
+                            }}
+                          >
+                            <Plus className="w-4 h-4" /> Schedule First Appointment
+                          </Button>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -465,6 +647,18 @@ export const Appointments = ({ onViewChart }: { onViewChart?: (patientId: string
                           </div>
                         </TableCell>
                         <TableCell>{appt.reason}</TableCell>
+                        <TableCell>
+                          {appt.assigned_to ? (
+                            <div className="flex items-center gap-2">
+                              <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary">
+                                {staff.find(s => s.id === parseInt(appt.assigned_to))?.fullName?.charAt(0) || 'U'}
+                              </div>
+                              <span className="text-xs">{staff.find(s => s.id === parseInt(appt.assigned_to))?.fullName || 'Unknown'}</span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground italic">Unassigned</span>
+                          )}
+                        </TableCell>
                         <TableCell>{getStatusBadge(appt.status)}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">

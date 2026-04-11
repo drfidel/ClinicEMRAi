@@ -334,8 +334,13 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
   const [recentPrescriptions, setRecentPrescriptions] = useState<any[]>([]);
   const [inventory, setInventory] = useState<any[]>([]);
   const [notes, setNotes] = useState('');
+  const [diagnosisText, setDiagnosisText] = useState('');
+  const [isDiagnosisOpen, setIsDiagnosisOpen] = useState(false);
   const [prescValues, setPrescValues] = useState({ dose: 1, frequency: 3, duration: 5, dosage: '', instructions: '', quantity: 15, medication_name: '' });
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [pastEncounters, setPastEncounters] = useState<any[]>([]);
+  const [isPastEncountersModalOpen, setIsPastEncountersModalOpen] = useState(false);
+  const [selectedPastEncounter, setSelectedPastEncounter] = useState<any>(null);
   const { token, user } = useAuthStore();
 
   const fetchRecentImaging = async () => {
@@ -361,6 +366,19 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
       setRecentPrescriptions(data.filter((p: any) => p.patient_id === appt.patient_id));
     } catch (err) {
       console.error('Failed to fetch recent prescriptions', err);
+    }
+  };
+
+  const fetchPastEncounters = async () => {
+    try {
+      const res = await axios.get(`/api/encounters/${appt.patient_id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = Array.isArray(res.data) ? res.data : [];
+      // Filter for this patient and exclude the current appointment's encounter
+      setPastEncounters(data.filter((e: any) => e.appointment_id !== appt.id).sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+    } catch (err) {
+      console.error('Failed to fetch past encounters', err);
     }
   };
 
@@ -400,6 +418,7 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
             setSelectedICD10(enc.icd10_codes || []);
             setPrescriptions(enc.prescriptions || []);
             setNotes(enc.notes || '');
+            setDiagnosisText(enc.diagnosis || '');
           }
         }
       } catch (err) {
@@ -413,6 +432,7 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
     fetchRecentLabs();
     fetchRecentPrescriptions();
     fetchInventory();
+    fetchPastEncounters();
   }, [appt.id, appt.patient_id, appt.status, token]);
 
   const fetchRecentLabs = async () => {
@@ -674,6 +694,50 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
 
   return (
     <form key={`${appt.id}-${vitals?.id || 'no-vitals'}-${encounter?.id || 'no-encounter'}`} onSubmit={handleSubmit} className="space-y-6 py-4">
+      {pastEncounters.length > 0 && (
+        <>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-primary font-semibold">
+                <FileText className="w-5 h-5" />
+                <h3>Past Consultations</h3>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {pastEncounters.slice(0, 3).map((enc: any) => (
+                <Card key={enc.id} className="bg-muted/10 cursor-pointer hover:bg-muted/30 transition-colors" onClick={() => {
+                  setSelectedPastEncounter(enc);
+                  setIsPastEncountersModalOpen(true);
+                }}>
+                  <CardContent className="p-4 space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm font-medium">{new Date(enc.created_at).toLocaleDateString()}</span>
+                      <Badge variant="outline" className="text-[10px]">
+                        {enc.diagnosis ? 'Diagnosed' : 'Follow-up'}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground line-clamp-2">
+                      {enc.symptoms || 'No symptoms recorded'}
+                    </p>
+                    {enc.diagnosis && (
+                      <p className="text-xs font-medium line-clamp-1">
+                        Dx: {enc.diagnosis}
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+            {pastEncounters.length > 3 && (
+              <Button variant="link" className="px-0 text-sm" onClick={() => setIsPastEncountersModalOpen(true)}>
+                View all {pastEncounters.length} past consultations
+              </Button>
+            )}
+          </div>
+          <Separator />
+        </>
+      )}
+
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-primary font-semibold">
@@ -747,7 +811,59 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
           <div className="space-y-2">
             <Label className="font-semibold">Diagnosis</Label>
             <div className="space-y-3">
-              <Textarea name="diagnosis" placeholder="Enter diagnosis description..." required className="min-h-[80px] bg-muted/20" defaultValue={encounter?.diagnosis} />
+              <div className="relative">
+                <Textarea 
+                  name="diagnosis" 
+                  placeholder="Enter diagnosis description or search ICD-10 (separate multiple with commas or newlines)..." 
+                  required 
+                  className="min-h-[80px] bg-muted/20" 
+                  value={diagnosisText}
+                  onChange={(e) => {
+                    setDiagnosisText(e.target.value);
+                    setIsDiagnosisOpen(true);
+                  }}
+                  onFocus={() => setIsDiagnosisOpen(true)}
+                  onBlur={() => setTimeout(() => setIsDiagnosisOpen(false), 200)}
+                />
+                {isDiagnosisOpen && diagnosisText && (
+                  <div className="absolute z-10 w-full mt-1 bg-popover border rounded-md shadow-md max-h-[200px] overflow-y-auto">
+                    {(() => {
+                      const lastSeparator = Math.max(diagnosisText.lastIndexOf(','), diagnosisText.lastIndexOf('\n'));
+                      const searchTerm = diagnosisText.substring(lastSeparator + 1).trim().toLowerCase();
+                      
+                      if (!searchTerm) return null;
+
+                      const filteredCodes = ICD10_CODES.filter(item => 
+                        item.name.toLowerCase().includes(searchTerm) || 
+                        item.code.toLowerCase().includes(searchTerm)
+                      );
+
+                      if (filteredCodes.length === 0) {
+                        return <div className="px-3 py-2 text-sm text-muted-foreground">No matching ICD-10 codes found.</div>;
+                      }
+
+                      return filteredCodes.map(item => (
+                        <div 
+                          key={item.code}
+                          className="px-3 py-2 cursor-pointer hover:bg-accent text-sm flex flex-col"
+                          onMouseDown={(e) => {
+                            e.preventDefault(); // Prevent blur
+                            const prefix = lastSeparator !== -1 ? diagnosisText.substring(0, lastSeparator + 1) + ' ' : '';
+                            setDiagnosisText(prefix + `${item.code} - ${item.name}`);
+                            if (!selectedICD10.includes(item.code)) {
+                              setSelectedICD10([...selectedICD10, item.code]);
+                            }
+                            setIsDiagnosisOpen(false);
+                          }}
+                        >
+                          <span className="font-bold text-primary">{item.code}</span>
+                          <span className="text-muted-foreground">{item.name}</span>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                )}
+              </div>
               <div className="flex flex-wrap gap-2 p-2 border rounded-md bg-muted/10">
                 {selectedICD10.length === 0 && <span className="text-xs text-muted-foreground italic">No ICD-10 codes added</span>}
                 {selectedICD10.map(code => (
@@ -1883,6 +1999,125 @@ const ConsultationForm = ({ appt, onComplete }: { appt: any, onComplete: () => v
               <DialogFooter>
                 <DialogClose render={<Button type="button">Done</Button>} />
               </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={isPastEncountersModalOpen} onOpenChange={setIsPastEncountersModalOpen}>
+            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Past Consultations</DialogTitle>
+              </DialogHeader>
+              <div className="py-4 space-y-6">
+                {selectedPastEncounter ? (
+                  <div className="space-y-6">
+                    <div className="flex items-center justify-between border-b pb-4">
+                      <div>
+                        <h3 className="text-lg font-semibold">Encounter Details</h3>
+                        <p className="text-sm text-muted-foreground">{new Date(selectedPastEncounter.created_at).toLocaleString()}</p>
+                      </div>
+                      <Button variant="outline" size="sm" onClick={() => setSelectedPastEncounter(null)}>
+                        Back to List
+                      </Button>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-6">
+                      <div className="space-y-4">
+                        <div>
+                          <h4 className="font-medium text-sm text-muted-foreground mb-1">Symptoms</h4>
+                          <p className="text-sm bg-muted/20 p-3 rounded-md min-h-[60px] whitespace-pre-wrap">
+                            {selectedPastEncounter.symptoms || 'None recorded'}
+                          </p>
+                        </div>
+                        <div>
+                          <h4 className="font-medium text-sm text-muted-foreground mb-1">Diagnosis</h4>
+                          <p className="text-sm bg-muted/20 p-3 rounded-md min-h-[60px] whitespace-pre-wrap">
+                            {selectedPastEncounter.diagnosis || 'None recorded'}
+                          </p>
+                        </div>
+                        <div>
+                          <h4 className="font-medium text-sm text-muted-foreground mb-1">Clinical Notes</h4>
+                          <div 
+                            className="text-sm bg-muted/20 p-3 rounded-md min-h-[100px] prose prose-sm max-w-none"
+                            dangerouslySetInnerHTML={{ __html: selectedPastEncounter.notes || 'None recorded' }}
+                          />
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-4">
+                        <div>
+                          <h4 className="font-medium text-sm text-muted-foreground mb-1">Vitals</h4>
+                          <div className="grid grid-cols-2 gap-2 text-sm bg-muted/20 p-3 rounded-md">
+                            <div><span className="text-muted-foreground">Temp:</span> {selectedPastEncounter.temperature || '--'} °C</div>
+                            <div><span className="text-muted-foreground">BP:</span> {selectedPastEncounter.blood_pressure || '--'}</div>
+                            <div><span className="text-muted-foreground">Pulse:</span> {selectedPastEncounter.pulse || '--'} bpm</div>
+                            <div><span className="text-muted-foreground">SpO2:</span> {selectedPastEncounter.spo2 || '--'} %</div>
+                            <div><span className="text-muted-foreground">Weight:</span> {selectedPastEncounter.weight || '--'} kg</div>
+                            <div><span className="text-muted-foreground">Height:</span> {selectedPastEncounter.height || '--'} cm</div>
+                          </div>
+                        </div>
+                        
+                        {selectedPastEncounter.prescriptions && selectedPastEncounter.prescriptions.length > 0 && (
+                          <div>
+                            <h4 className="font-medium text-sm text-muted-foreground mb-1">Prescriptions</h4>
+                            <div className="space-y-2">
+                              {selectedPastEncounter.prescriptions.map((p: any, i: number) => (
+                                <div key={i} className="text-sm bg-muted/20 p-2 rounded-md border">
+                                  <div className="font-medium">{p.medication_name} {p.dosage}</div>
+                                  <div className="text-xs text-muted-foreground">
+                                    {p.instructions} • Qty: {p.quantity}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {selectedPastEncounter.ordered_labs && selectedPastEncounter.ordered_labs.length > 0 && (
+                          <div>
+                            <h4 className="font-medium text-sm text-muted-foreground mb-1">Ordered Labs</h4>
+                            <div className="flex flex-wrap gap-1">
+                              {selectedPastEncounter.ordered_labs.map((labId: string) => {
+                                const lab = LAB_TESTS.find(t => t.id === labId);
+                                return (
+                                  <Badge key={labId} variant="secondary" className="text-xs">
+                                    {lab?.name || labId}
+                                  </Badge>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {pastEncounters.map((enc: any) => (
+                      <Card key={enc.id} className="cursor-pointer hover:bg-muted/30 transition-colors" onClick={() => setSelectedPastEncounter(enc)}>
+                        <CardContent className="p-4 flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
+                          <div className="space-y-1 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold">{new Date(enc.created_at).toLocaleDateString()}</span>
+                              <span className="text-xs text-muted-foreground">{new Date(enc.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                            </div>
+                            <p className="text-sm text-muted-foreground line-clamp-1">
+                              <span className="font-medium text-foreground">Dx:</span> {enc.diagnosis || 'None'}
+                            </p>
+                            <p className="text-sm text-muted-foreground line-clamp-1">
+                              <span className="font-medium text-foreground">Sx:</span> {enc.symptoms || 'None'}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-1 sm:justify-end max-w-[200px]">
+                            {enc.prescriptions?.length > 0 && <Badge variant="outline" className="text-[10px]">Rx ({enc.prescriptions.length})</Badge>}
+                            {enc.ordered_labs?.length > 0 && <Badge variant="outline" className="text-[10px]">Labs ({enc.ordered_labs.length})</Badge>}
+                            {enc.ordered_imaging?.length > 0 && <Badge variant="outline" className="text-[10px]">Imaging ({enc.ordered_imaging.length})</Badge>}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </div>
             </DialogContent>
           </Dialog>
         </div>
